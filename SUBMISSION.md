@@ -19,6 +19,22 @@ final ablation run.
 
 ---
 
+## 1b. End-of-project steps — before Monday 7 PM IST
+
+Entire's job, in the organisers' words, is *"records every session"*: the
+Claude Code session that built Upshift should be a checkpoint on this repo. It
+is deliberately **not** enabled yet — the session transcript contains live keys
+in plaintext, and Entire syncs checkpoints to `origin`, which is public.
+
+1. **You:** revoke the GitHub PAT; rotate the Token Harbor and neatlogs keys;
+   put the new ones in `.env`.
+2. **Claude:** rotate the MCP API key and restart the server (update it in
+   cfo.ai → MCP → DEMOMCP).
+3. **Claude:** `entire enable -y --agent claude-code` in `~/neathack`, attach
+   this session with `entire session attach <session-id>`, push.
+4. Check the checkpoint is visible on entire.io for `romilp619/upshift`.
+5. Stop the cloudflared tunnel and the MCP server after the demo is recorded.
+
 ## 2. Demo video — 3 minutes
 
 Record the screen; talk over it. Keep each shot short.
