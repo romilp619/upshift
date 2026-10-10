@@ -1,0 +1,5 @@
+neatlogs>=0.1
+anthropic>=0.40
+bump-pydantic>=0.8
+pyyaml>=6.0
+rich>=13.0

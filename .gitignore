@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+targets/
+evidence/runs/*.raw.jsonl
+.entire/cache/
