@@ -1,139 +1,162 @@
 # Upshift
 
-**An autonomous framework-migration agent that finishes what codemods cannot — and gets cheaper per file as it learns the repository.**
+**An autonomous migration agent that finishes what the official codemod can't.**
 
-Built for [neatHack 2026](https://neatlogs.com/hackathon).
+Point it at a Python repo stuck on Pydantic v1. It runs `bump-pydantic`, then
+lets the interpreter tell it what is still broken, fixes the file that explains
+the most failures, proves every edit against the whole package and a regression
+suite, and rolls back anything that doesn't move the number.
+
+Built for [neatHack 2026](https://neatlogs.com/hackathon) with **neatlogs**,
+**Entire** and **cfo.ai**.
 
 ---
 
-## The problem
+## The result
 
-Framework migrations have official codemods. They are not enough.
+Target: [`steamship-core/python-client`](https://github.com/steamship-core/python-client) —
+199 modules, pinned to `pydantic~=1.10.2`.
 
-We pointed `bump-pydantic` — the Pydantic team's own tool — at
-[`steamship-core/python-client`](https://github.com/steamship-core/python-client),
-a real repo with 198 modules pinned to `pydantic~=1.10.2`. It exited cleanly and
-reported *"Refactored 11 files."*
+| | Modules importable | Green tests |
+|---|---|---|
+| Pydantic v1 — the ceiling | 198 / 199 | 62 / 62 |
+| v2, untouched | 31 / 199 | 0 / 62 |
+| v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
+| v2 + `bump-pydantic` + **Upshift** | **RESULT_MODULES** | **RESULT_TESTS** |
 
-The package still did not import:
+The codemod exits cleanly, changes 11 files, and **gains zero modules**. It does
+mechanical renames; it cannot decide that `fetch_if_exists = False` on a model
+must become `fetch_if_exists: ClassVar[bool] = False` — that takes reading how
+the attribute is used. That gap is the product.
 
-```
-src/steamship/data/package/package.py:19  class PackageCreateRequest
-PydanticUserError: A non-annotated attribute was detected: `fetch_if_exists = False`.
-All model fields require a type annotation.
-```
-
-`package.py` was not among the 11 files it touched. Codemods do mechanical
-renames — `@validator` → `@field_validator`, `class Config` → `model_config`.
-They cannot infer that `fetch_if_exists = False` should be
-`fetch_if_exists: bool = False`, because that requires reading how the field is
-used. That inference is the gap between a codemod and an agent, and it is the
-whole reason this project exists.
-
-## The benchmark
-
-Two deterministic, full-coverage numbers — no self-grading:
-
-1. **`modules_importable` / 198** — every `steamship.*` submodule imported in a
-   fresh interpreter. Pydantic v2 rejects v1 model definitions at class-creation
-   time, so this counts real progress rather than lines touched.
-2. **`green_tests` / 62** — the 17 test files that pass offline under v1, used as
-   a regression guard. Breaking one rejects the patch regardless of import count.
-
-| Config | Files changed | Modules importable | Green tests |
-|---|---|---|---|
-| Pydantic v1 (reference ceiling) | — | **197 / 198** | **62 / 62** |
-| v2, untouched source | 0 | **0 / 198** | **0 / 62** |
-| v2, after `bump-pydantic` | 11 / 199 | **0 / 198** | **0 / 62** |
-| v2, after Upshift | _see evidence/_ | _see evidence/_ | _see evidence/_ |
-
-Reproduce the baseline: `python -m upshift baseline --target python-client`.
-Raw evidence in [`bench/baseline-python-client.md`](bench/baseline-python-client.md)
-and [`bench/bump-pydantic.patch`](bench/bump-pydantic.patch).
+How the metric works, and the baseline measurements:
+[`bench/baseline-python-client.md`](bench/baseline-python-client.md).
 
 ## How it works
 
-Per file: ask Brain what we already decided here → ask Graph where the code
-connects → migrate → checkpoint → verify → on failure roll back and retry →
-on success write down what was learned.
-
 ```
-          ┌─────────── Entire Brain ──────────┐
-          │  what we already learned here     │
-          ▼                                   │
-   ┌──────────┐   ┌───────┐   ┌────────┐   ┌──┴───────┐
-   │ Graph:   │──▶│ patch │──▶│ verify │──▶│ remember │
-   │ where to │   └───────┘   └────┬───┘   └──────────┘
-   │ look     │        ▲           │ fail
-   └──────────┘        └───────────┘
-                    Checkpoint rollback
+ bump-pydantic ──▶ import every module ──▶ blame each failure on a file
+                          ▲                          │
+                          │                          ▼
+                   keep or roll back ◀── patch ◀── context
+                   (imports must rise,          ├─ Entire Graph: definitions & callers
+                    tests must not fall)        ├─ Entire search: related repo history
+                                                └─ lessons learned earlier this run
 ```
 
-Each tool earns its place, and we measure whether it does:
+1. **The interpreter drives the work.** Every module is imported in a fresh
+   process; each failure is blamed on the deepest in-repo frame of its
+   traceback, and the file that explains the most failures goes first. A regex
+   over the source can't tell which file is breaking the build — a traceback can.
+2. **The agent sees the error.** The failing traceback is in the first prompt.
+   Without it, the model looked at a plausible file and returned it unchanged.
+3. **Every edit is proven.** A patch is kept only if importable modules rise or
+   failures blamed on that file fall — and never if importable modules or
+   passing tests drop. Otherwise it is rolled back and the agent retries with the
+   new error, up to three times.
+4. **It can say "not here".** If the cause lives in another file — a base class,
+   a shared model — the agent answers `NO_CHANGE_NEEDED: <path>` and the loop
+   follows it.
+5. **It remembers.** Each accepted file yields one repo-specific lesson, carried
+   into later prompts and written into the commit as an `Upshift-Lesson:`
+   trailer, where Entire search can find it on the next run.
 
-| Tool | Role | Not decorative because |
+## The three sponsor tools — and what each one actually does here
+
+| | Role | Evidence |
 |---|---|---|
-| **neatlogs** | traces every tool call, token and dollar | the learning curve below is read out of the traces |
-| **Entire Graph** | finds call sites and blast radius before editing | ablation arm measures it |
-| **Entire Brain** | remembers *this repo's* conventions across files | this is what makes later files cheaper |
-| **Entire Checkpoints** | mechanical undo when verification fails | every rollback is a recorded checkpoint |
-| **Entire Trails** | Runners review each batch; the agent fixes what they flag | verification the agent did not write |
-| **cfo.ai** | pricing, costs, runway | see `BUSINESS.md` |
+| **neatlogs** | Every LLM call, import check, test run, Graph query and search is a span. Token counts and cost per file come from these traces. | traces tagged by config: NEATLOGS_LINKS |
+| **Entire Graph** | Before each edit: the definitions, base classes and callers of the models in the file, plus the narrowest covering test. | 583 files, 2,118 symbols, 14,138 relations indexed |
+| **Entire search** | Recall: related commits from the repo's history and from earlier Upshift runs. | finds e.g. a 2023 commit *"Fix pydantic validators"* |
+| **Entire Trails** | The migration branch is a Trail; six runners (review, risk, security, drift, confidence, summary) evaluate each push. | TRAIL_LINK |
+| **cfo.ai** | Ari is connected to the agent's telemetry over MCP and builds pricing and revenue from measured cost — and caught a 2× error in our own cost reporting. | [`BUSINESS.md`](BUSINESS.md) |
 
-### The Brain effect
+The chain matters more than any single tool: **Entire** tells the agent where
+to look, **neatlogs** measures what each decision cost, and **cfo.ai** reads
+those costs live and turns them into a business.
 
-The agent learns a convention on file 3 — *"models here use `model_config`, not a
-nested `class Config`"* — writes it with `entire brain remember`, and recalls it
-on files 4–53. Cost per file falls as the run proceeds. That curve is the
-headline result, and it is measured from neatlogs traces, not estimated.
+## Ablation: does each tool earn its place?
 
-### Ablation
+Same target, same model, same starting point. Only the context changes.
 
-Each Entire feature is a switch, so its contribution is a number rather than a claim:
+ABLATION_TABLE
+
+Reproduce:
 
 ```bash
 python -m upshift run --target python-client --config no-entire
 python -m upshift run --target python-client --config graph
-python -m upshift run --target python-client --config graph+ckpt
-python -m upshift run --target python-client --config graph+brain
+python -m upshift run --target python-client --config graph+memory
 python -m upshift report
 ```
+
+## Failure and recovery
+
+Every rollback is recorded per file in `evidence/runs/*.jsonl` (`attempts`,
+`rollbacks`). RECOVERY_EXAMPLE
+
+## What broke along the way
+
+The agent didn't work until it was measured honestly. Each of these would have
+put a false number in front of you, and each was found by running it:
+
+| Bug | Effect | Fix |
+|---|---|---|
+| A pytest collection crash parses as 0 failed / 0 errors | every file recorded as migrated against an empty diff | gate on the import probe, not on pytest alone |
+| The import probe used `pkgutil.walk_packages` | one broken subpackage reported the whole package as 0/198 | import each module from disk independently |
+| `entire graph search` called with a positional query | errored, returned `""` — Graph context never reached the agent | `--query`, `--format agent` |
+| `.entire/` committed on the work branch | `reset --hard` deleted it; Entire went "not set up" mid-run | pin includes `.entire/`; restored on reset |
+| Files worked alphabetically | correct edits rolled back for not being the current blocker | follow the traceback |
+| The prompt never contained the error | the blocking file came back "no change" four times | traceback in the first attempt |
+| Mean cost per file over 4 files, one 10k-token outlier | cost overstated ~2× — **caught by cfo.ai's Ari** | report the median |
 
 ## Quick start
 
 ```bash
 git clone https://github.com/romilp619/upshift && cd upshift
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env          # add NEATLOGS_API_KEY and a model key
-entire login
+cp .env.example .env        # NEATLOGS_API_KEY and a model key
+ENTIRE_TOKEN_STORE=file entire login
 
-python -m upshift setup    --target python-client   # clone, enable Entire, index Graph, build Brain
-python -m upshift baseline --target python-client   # the codemod number to beat
-python -m upshift run      --target python-client --config graph+brain
+python -m upshift setup    --target python-client
+python -m upshift baseline --target python-client
+python -m upshift run      --target python-client --config graph+memory
 python -m upshift report
 ```
 
-Any Anthropic-compatible gateway works — set `UPSHIFT_BASE_URL`. Claude-only
+Any Anthropic-compatible endpoint works via `UPSHIFT_BASE_URL`; the runs here
+used `deepseek-v4.1-flash` on the free tier through Token Harbor. Claude-only
 request features (adaptive thinking, effort, prompt caching) are sent only to
-Claude models, so non-Claude gateway models do not 400.
+Claude models.
+
+To let cfo.ai read the telemetry:
+
+```bash
+python -m upshift.mcp_server --port 8787 --api-key <secret> --allow-host <tunnel-host>
+```
 
 ## Layout
 
 | Path | |
 |---|---|
-| `upshift/agent.py` | the migrate → verify → recover → remember loop |
-| `upshift/entire_cli.py` | Graph, Brain, Checkpoints |
-| `upshift/trails.py` | Trails + Runner findings |
-| `upshift/guard.py` | rejects patches that fake success by deleting tests or assertions |
-| `upshift/llm.py` | model client with token, cache and cost accounting |
+| `upshift/agent.py` | the loop: probe → blame → context → patch → verify → keep or roll back |
+| `upshift/target.py` | the repo under migration: import probe, blame map, regression tests |
+| `upshift/entire_cli.py` | Entire Graph and search |
+| `upshift/trails.py` | Entire Trails and runner findings |
+| `upshift/guard.py` | rejects patches that fake progress by deleting tests or assertions |
+| `upshift/llm.py` | model client with token and cost accounting |
 | `upshift/obs.py` | neatlogs instrumentation |
-| `bench/` | target spec and the codemod baseline |
-| `evidence/runs/` | per-file JSONL — the learning curve |
+| `upshift/mcp_server.py` | the telemetry cfo.ai reads |
+| `bench/` | target spec, baseline, codemod diff, Entire config |
+| `evidence/runs/` | one JSONL per run: every file, attempt, rollback, token |
 
 ## Honest notes
 
-- The benchmark's green-test subset is 62 tests, not the full 266. The rest need
-  the hosted Steamship API and are excluded as noise, not cherry-picked.
-- A baseline of 0/198 looks flattering to us, so Upshift **runs `bump-pydantic`
-  first and finishes what it cannot do**. The comparison is "codemod alone" vs
-  "codemod + agent", which is the fair one.
+- **Brain isn't used.** Entire documents a Brain memory feature, but it is not in
+  CLI 0.11.4. Memory here is built from Entire search plus commit trailers.
+- **One target repo.** The numbers are for one real codebase, not a benchmark
+  suite.
+- **One model measured.** All runs used `deepseek-v4.1-flash`. Costs for other
+  models in `BUSINESS.md` are its measured token counts at list price.
+- **62 of 266 tests.** The rest need the hosted Steamship API and can't run
+  offline; they're excluded as noise, not cherry-picked.
