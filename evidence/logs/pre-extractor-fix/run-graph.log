@@ -22,3 +22,11 @@ codemod: 11 files changed -> 31/199
 [ 19] import ok   src/steamship/agents/tools/text_generation/custom_llm_prompt.py imports=199/199 tests=37 att=1 rb=0 14.43s 
 all modules import
 [ 20] tests  ok   src/steamship/data/block.py                              imports=199/199 tests=41 att=1 rb=0 36.69s 
+[ 21] tests  ok   src/steamship/invocable/config.py                        imports=199/199 tests=46 att=1 rb=0 15.08s 
+[ 22] tests  QUAR src/steamship/plugin/capabilities.py                     imports=199/199 tests=46 att=3 rb=3 610.26s 
+[ 23] tests  ok   src/steamship/base/model.py                              imports=199/199 tests=56 att=3 rb=2 545.34s 
+[ 24] tests  ok   src/steamship/data/manifest.py                           imports=199/199 tests=57 att=1 rb=0 197.2s 
+no test failure left that can be moved
+final: 199/199 modules, 57 green tests
+
+done -> /home/romil/neathack/evidence/runs/graph-1010-2259-eded.jsonl
