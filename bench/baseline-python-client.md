@@ -53,3 +53,31 @@ The target's own venv (`targets/python-client/.venv`) needs
 `pip install --upgrade typing_extensions` after installing requirements -
 the pinned `aiosignal` fails to import otherwise
 (`TypeVarTuple.__init__() got an unexpected keyword argument 'default'`).
+
+## Entire CLI 0.11.4 — what is actually available
+
+`entire brain` does not exist in this CLI and `entire plugin search brain`
+returns nothing. The documented Brain feature is not shipped here, so the
+repo-memory role is filled by checkpoints plus `entire search`:
+
+| Documented as | Actually used |
+|---|---|
+| `brain brief` / `brain recall` | `entire search "<task>" --compact` — hybrid semantic + keyword over checkpoints, sessions and commits, scoped to the repo. `--compact` is explicitly shaped for agents. |
+| `brain remember` | committing. Entire captures the session as a checkpoint linked to the commit, which `search` then indexes. |
+| `brain setup` | `entire enable` + `entire graph index`. |
+
+This is arguably the better story: checkpoints are Entire's core product and
+need no feature flag, whereas Brain is unavailable.
+
+Already proven useful — searching the untouched target returns a 2023 commit
+from its own history titled *"Fix pydantic validators"*, real prior art for the
+migration.
+
+Custom agents are not captured by hooks (Entire ships hooks for claude-code,
+codex, cursor, copilot-cli and others). `entire session attach` creates a
+checkpoint from a transcript for "any registered agent, including external
+agents enabled via external_agents in .entire/settings.local.json" — that is
+the route for Upshift to write its own checkpoints.
+
+Graph indexed the target: 583 files, 582 parsed, 2118 symbols, 14138 relations
+in 6.7s.

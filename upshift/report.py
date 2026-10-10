@@ -48,16 +48,19 @@ def learning_curve(files: list[dict], bucket: int = 10) -> list[dict]:
 
 def ablation(run_ids: list[str]) -> str:
     lines = [
-        "| Config | Files green | Suite pass rate | Steps/file | Cost/file | Rollbacks |",
-        "|---|---|---|---|---|---|",
+        "| Config | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |",
+        "|---|---|---|---|---|---|---|",
+        "| `bump-pydantic` (codemod alone) | **0 / 198** | 0 | 11 changed | - | $0 | - |",
     ]
     for run_id in run_ids:
         files, summary = load(run_id)
         stats = _per_file(files)
         lines.append(
             f"| {summary.get('config_name', run_id)} "
+            f"| **{summary.get('modules_importable', 0)} / "
+            f"{summary.get('modules_total', 0) or 198}** "
+            f"| {summary.get('green_tests', 0)} "
             f"| {summary.get('files_migrated', 0)}/{summary.get('files_total', 0)} "
-            f"| {summary.get('suite_pass_rate', 0) * 100:.0f}% "
             f"| {stats['steps']} "
             f"| ${stats['cost']:.4f} "
             f"| {summary.get('total_rollbacks', 0)} |"

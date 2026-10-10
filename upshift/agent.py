@@ -177,6 +177,7 @@ class MigrationAgent:
                     continue
 
                 result.outcome = "migrated"
+                result.modules_importable = imports.ok
                 result.tests_passed = tests.passed if tests else 0
                 self.baseline_imports = max(self.baseline_imports, imports.ok)
                 if tests is not None:
@@ -268,5 +269,12 @@ class MigrationAgent:
                     print(f"      full suite: {suite.passed}p/{suite.failed}f/{suite.errors}e")
 
             final = self._run_tests(timeout=900)
-            self.metrics.finish(suite_pass_rate=round(final.pass_rate, 4))
+            final_imports = self.target.import_check()
+            self.metrics.finish(
+                suite_pass_rate=round(final.pass_rate, 4),
+                modules_importable=final_imports.ok,
+                modules_total=final_imports.total,
+                green_tests=final.passed,
+                baseline_importable=0,   # v2 + untouched source imports nothing
+            )
         return self.metrics
