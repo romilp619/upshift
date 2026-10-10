@@ -6,9 +6,19 @@ plain migration run, which is exactly the `no-entire` ablation config.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+
+def _env() -> dict:
+    """WSL, containers and CI have no org.freedesktop.secrets keyring, so the
+    Entire CLI cannot read back a token it stored there. Force the file store
+    for every subprocess rather than relying on the caller's shell."""
+    env = os.environ.copy()
+    env.setdefault("ENTIRE_TOKEN_STORE", "file")
+    return env
 
 
 class EntireError(RuntimeError):
@@ -22,6 +32,7 @@ def _run(args: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str, str]
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=_env(),
     )
     return proc.returncode, proc.stdout, proc.stderr
 

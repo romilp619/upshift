@@ -16,15 +16,24 @@ is a valid ablation arm rather than a crash.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _env() -> dict:
+    """See upshift.entire_cli._env - no OS keyring on WSL/containers/CI."""
+    env = os.environ.copy()
+    env.setdefault("ENTIRE_TOKEN_STORE", "file")
+    return env
+
+
 def _run(args: list[str], cwd: Path, timeout: int = 180) -> tuple[int, str, str]:
     try:
         proc = subprocess.run(
-            ["entire", *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout
+            ["entire", *args], cwd=str(cwd), capture_output=True, text=True,
+            timeout=timeout, env=_env(),
         )
         return proc.returncode, proc.stdout, proc.stderr
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
