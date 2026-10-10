@@ -6,3 +6,4 @@ venv/
 targets/
 evidence/runs/*.raw.jsonl
 .entire/cache/
+evidence/logs/*.log
