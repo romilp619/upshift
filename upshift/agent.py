@@ -34,6 +34,22 @@ MAX_PICKS_PER_FILE = 4   # a file with several errors is revisited, but not fore
 
 
 def _extract_code(text: str) -> str:
+    """Everything between the first opening fence and the LAST closing fence.
+
+    A non-greedy fence regex stops at the first closing ``` - and source files
+    can contain fences inside strings. react.py holds a ReACT prompt with code
+    blocks in it, so a correct 113-line answer was cut to 28 lines, the guard
+    (rightly) refused to write it, and the file was quarantined four times for
+    a parsing bug.
+    """
+    lines = text.splitlines()
+    opens = [i for i, ln in enumerate(lines)
+             if ln.strip().startswith("```") and ln.strip() != "```"]
+    closes = [i for i, ln in enumerate(lines) if ln.strip() == "```"]
+    if opens:
+        start = opens[0]
+        end = next((c for c in reversed(closes) if c > start), len(lines))
+        return "\n".join(lines[start + 1:end]).rstrip() + "\n"
     match = _FENCE.search(text)
     return (match.group(1) if match else text).rstrip() + "\n"
 
