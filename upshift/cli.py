@@ -111,7 +111,7 @@ def main():
     parser = argparse.ArgumentParser(prog="upshift")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("setup", help="clone target, enable Entire, index graph, build brain")
+    p = sub.add_parser("setup", help="clone target, enable Entire, index Graph")
     p.add_argument("--target", required=True)
     p.add_argument("--fresh", action="store_true")
     p.set_defaults(func=cmd_setup)

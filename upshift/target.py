@@ -68,7 +68,9 @@ for name in sorted(set(names)):
         ok.append(name)
     except BaseException as e:
         tb = traceback.format_exc()
-        bad.append({{"module": name, "err": f"{{type(e).__name__}}: {{e}}"[:300], "tb": tb[-2500:]}})
+        frames = [fr.filename for fr in traceback.extract_tb(e.__traceback__)]
+        bad.append({{"module": name, "err": f"{{type(e).__name__}}: {{e}}"[:300],
+                     "tb": tb[:1500] + "\\n...\\n" + tb[-1000:], "frames": frames}})
 print("UPSHIFT_IMPORTS " + json.dumps({{"ok": len(ok), "bad": len(bad), "failures": bad}}))
 """
 
@@ -96,6 +98,16 @@ class ImportResult:
     def first_failing_module(self) -> str:
         return (self.failures or [{}])[0].get("module", "") if self.failures else ""
 
+    @staticmethod
+    def frames_of(failure: dict) -> list:
+        """Stack frame filenames. Stored structurally by the probe because a
+        PydanticUserError embeds the whole offending value - one was a
+        multi-kilobyte prompt string - and truncating the text dropped every
+        frame, leaving nothing to blame."""
+        if failure.get("frames"):
+            return list(failure["frames"])
+        return re.findall(r'File "([^"]+\.py)", line \d+', failure.get("tb", ""))
+
     def blame(self, repo: "Path") -> dict:
         """repo-relative file -> the failures whose traceback ends inside it.
 
@@ -105,10 +117,8 @@ class ImportResult:
         """
         out: dict = {}
         for failure in self.failures or []:
-            tb = failure.get("tb", "")
             deepest = ""
-            for match in re.finditer(r'File "([^"]+\.py)", line \d+', tb):
-                path = match.group(1)
+            for path in self.frames_of(failure):
                 if "/site-packages/" in path or "<" in path:
                     continue
                 try:
@@ -209,6 +219,89 @@ class Target:
         API and would read as regressions that have nothing to do with us."""
         return self.run_tests(only=self.green_tests or None, timeout=timeout)
 
+    def run_green_detailed(self, timeout: int = 300) -> tuple["TestResult", list]:
+        """Green subset plus one record per failing test or collection error,
+        with a native traceback so failures can be blamed on a source file."""
+        import tempfile
+        import xml.etree.ElementTree as ET
+        with tempfile.NamedTemporaryFile(suffix=".xml", delete=False) as fh:
+            report = fh.name
+        result = self.run_tests(only=self.green_tests or None, timeout=timeout,
+                                extra=["--tb=native", f"--junitxml={report}"])
+        failures = []
+        try:
+            root = ET.parse(report).getroot()
+            for case in root.iter("testcase"):
+                for kind in ("failure", "error"):
+                    el = case.find(kind)
+                    if el is None:
+                        continue
+                    node = case.get("classname", "") + ("::" + case.get("name") if case.get("name") else "")
+                    text = el.text or ""
+                    # The exception and its detail lines, minus pydantic's doc links.
+                    lines = [ln.strip() for ln in text.strip().splitlines()
+                             if ln.strip() and "errors.pydantic.dev" not in ln]
+                    start = next((i for i in range(len(lines) - 1, -1, -1)
+                                  if re.match(r"^[\w.]+(Error|Exception)\b", lines[i])), None)
+                    detail = " | ".join(lines[start:start + 6]) if start is not None else \
+                        (lines[-1] if lines else el.get("message", ""))
+                    failures.append({
+                        "module": node,
+                        "err": detail[:400],
+                        "tb": text[:1500] + "\n...\n" + text[-1500:],
+                        "frames": re.findall(r'File "([^"]+\.py)", line \d+', text),
+                    })
+        except (ET.ParseError, FileNotFoundError):
+            pass
+        finally:
+            Path(report).unlink(missing_ok=True)
+        return result, failures
+
+    def blame_tests(self, failures: list) -> dict:
+        """src file -> failing tests it most likely explains.
+
+        A "Field required" ValidationError is raised inside the shared base
+        model's __init__, so the deepest src frame points at base/model.py while
+        the fix belongs in the model that declared the field. Find that model's
+        class definition first; fall back to the deepest src frame.
+        """
+        out: dict = {}
+        src = self.path / "src"
+        for failure in failures:
+            text = failure.get("tb", "") + "\n" + failure.get("err", "")
+            target = ""
+            m = re.search(r"validation errors? for (\w+)", text)
+            if m:
+                hit = subprocess.run(
+                    ["git", "grep", "-l", "-E", rf"^class {m.group(1)}\b", "--", "src"],
+                    cwd=self.path, capture_output=True, text=True,
+                ).stdout.split()
+                target = hit[0] if hit else ""
+            if not target:
+                for raw in ImportResult.frames_of(failure):
+                    path = Path(raw)
+                    try:
+                        rel = path.resolve().relative_to(src.resolve().parent)
+                    except ValueError:
+                        continue
+                    if str(rel).startswith("src/"):
+                        target = str(rel)
+            if not target:
+                # Only the test file is on the stack - e.g. `assert a == b` on two
+                # serialised models. The culprit is named in the message: resolve
+                # the first class it mentions that src/ defines.
+                for name in dict.fromkeys(re.findall(r"\b([A-Z][A-Za-z0-9]{3,})\(", text)):
+                    hit = subprocess.run(
+                        ["git", "grep", "-l", "-E", rf"^class {name}\b", "--", "src"],
+                        cwd=self.path, capture_output=True, text=True,
+                    ).stdout.split()
+                    if hit:
+                        target = hit[0]
+                        break
+            if target:
+                out.setdefault(target, []).append(failure)
+        return out
+
     def restore_file(self, rel: str) -> None:
         subprocess.run(["git", "checkout", "HEAD", "--", rel], cwd=self.path,
                        capture_output=True)
@@ -267,8 +360,13 @@ class Target:
                             failures=[{"module": package, "err": err[:300]}])
 
     # --- verification ----------------------------------------------------
-    def run_tests(self, only: list[str] | None = None, timeout: int = 300) -> TestResult:
+    def run_tests(self, only: list[str] | None = None, timeout: int = 300,
+                  extra: list[str] | None = None) -> TestResult:
         cmd = list(self.test_cmd or ["python", "-m", "pytest", "-q", "--no-header", "-p", "no:randomly"])
+        # By default pytest aborts the whole session on any collection error, so
+        # one broken test module reported all 62 tests as 0 passed.
+        cmd.append("--continue-on-collection-errors")
+        cmd.extend(extra or [])
         if only:
             cmd += [str(p) for p in only]
         start = time.time()

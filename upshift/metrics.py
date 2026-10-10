@@ -31,7 +31,7 @@ class FileResult:
 @dataclass
 class RunMetrics:
     run_id: str
-    config_name: str            # baseline | no-entire | graph | graph+brain
+    config_name: str            # no-entire | graph | graph+memory
     target_repo: str
     started_at: float = field(default_factory=time.time)
     files: list[FileResult] = field(default_factory=list)
@@ -59,7 +59,7 @@ class RunMetrics:
             "files_quarantined": sum(f.outcome == "quarantined" for f in self.files),
             "files_no_change": sum(f.outcome == "no-change" for f in self.files),
             "suite_pass_rate": suite_pass_rate,
-            # The number the whole submission turns on: bump-pydantic scores 0/198.
+            # The number the submission turns on: bump-pydantic leaves it at 31/199.
             "modules_importable": modules_importable,
             "modules_total": modules_total,
             "baseline_importable": baseline_importable,

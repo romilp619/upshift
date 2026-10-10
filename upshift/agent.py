@@ -60,8 +60,7 @@ class MigrationAgent:
         self.config_name = config_name
         self.use_graph = use_graph
         self.use_memory = use_memory
-        # Entire's search lives behind the use_brain switch in entire_cli.
-        self.entire = Entire(repo=target.path, use_graph=use_graph, use_brain=use_memory)
+        self.entire = Entire(repo=target.path, use_graph=use_graph, use_search=use_memory)
         self.llm = Claude()
         self.run_id = f"{config_name}-{time.strftime('%m%d-%H%M')}-{uuid.uuid4().hex[:4]}"
         self.metrics = RunMetrics(
@@ -81,6 +80,10 @@ class MigrationAgent:
     @obs.span(kind="TOOL", tool_name="run_green_tests")
     def _run_green(self):
         return self.target.run_green(timeout=300)
+
+    @obs.span(kind="TOOL", tool_name="run_green_tests_detailed")
+    def _run_green_detailed(self):
+        return self.target.run_green_detailed(timeout=300)
 
     @obs.span(kind="RETRIEVER", tool_name="entire_graph_search")
     def _graph_search(self, query: str) -> str:
@@ -157,21 +160,31 @@ class MigrationAgent:
         return "\n\n".join(chunks)
 
     # --- one file ----------------------------------------------------------
-    def migrate_file(self, rel: str, index: int, before: ImportResult) -> FileResult:
+    def migrate_file(self, rel: str, index: int, before: ImportResult,
+                     errors: str | None = None, affected: int | None = None) -> FileResult:
+        """One gate for both phases. A patch is kept if it raises importable
+        modules, removes import failures blamed on this file, or makes tests
+        pass that did not before - and never if importable modules or passing
+        tests fall. Import-clean is not the same as working: a v1 Optional field
+        with no default is required in v2, so everything imports and then breaks
+        the moment the model is constructed. Only the tests see that."""
         started = time.time()
         abs_path = self.target.path / rel
         original = abs_path.read_text()
         result = FileResult(index=index, path=rel, outcome="quarantined")
         blame_before = before.blame(self.target.path).get(rel, [])
-        errors = self._errors_for(blame_before)
+        tests_before = self.best_tests
+        if errors is None:
+            errors = self._errors_for(blame_before)
+        if affected is None:
+            affected = len(blame_before)
 
         with obs.trace(f"migrate:{rel}", kind="AGENT", file=rel, index=index):
             context, result.memory_recalled = self._context_for(rel, errors)
             hint = ""
             for attempt in range(1, CONFIG.max_attempts_per_file + 1):
                 result.attempts = attempt
-                prompt = self._build_prompt(rel, original, context, hint, errors,
-                                            len(blame_before))
+                prompt = self._build_prompt(rel, original, context, hint, errors, affected)
                 llm: LLMResult = self.llm.ask(MIGRATE_SYSTEM, prompt)
                 self._account(result, llm)
 
@@ -210,17 +223,25 @@ class MigrationAgent:
                     result.rollbacks += 1
                     self.target.restore_file(rel)
                     continue
-                if not (after.ok > before.ok or len(blame_after) < len(blame_before)):
-                    still = self._errors_for(blame_after, limit=2) if blame_after else after.first_error
-                    hint = f"No progress: the same modules still fail.\nCurrent error:\n{still}"
+
+                tests, test_failures = self._run_green_detailed()
+                if tests.passed < tests_before:
+                    broken = "\n".join(f"{f['module']}: {f['err']}" for f in test_failures[:3])
+                    hint = (f"Passing regression tests fell {tests_before} -> {tests.passed}.\n"
+                            f"{broken}")
                     result.rollbacks += 1
                     self.target.restore_file(rel)
                     continue
 
-                tests = self._run_green()
-                if tests.passed < self.best_tests:
-                    hint = (f"Passing regression tests fell {self.best_tests} -> {tests.passed}.\n"
-                            f"{tests.raw_tail[-1200:]}")
+                progressed = (after.ok > before.ok
+                              or len(blame_after) < len(blame_before)
+                              or tests.passed > tests_before)
+                if not progressed:
+                    mine = self.target.blame_tests(test_failures).get(rel, [])
+                    still = (self._errors_for(blame_after, limit=2) if blame_after
+                             else "\n".join(f"{f['module']}: {f['err']}" for f in mine[:2])
+                             or after.first_error)
+                    hint = f"No progress: the same failures remain.\nCurrent error:\n{still}"
                     result.rollbacks += 1
                     self.target.restore_file(rel)
                     continue
@@ -280,6 +301,16 @@ class MigrationAgent:
                 return rel
         return None
 
+    def _print(self, index: int, phase: str, rel: str, result: FileResult,
+               probe: ImportResult) -> None:
+        tag = {"migrated": "ok  ", "no-change": "same", "redirect": "->  ",
+               "quarantined": "QUAR"}[result.outcome]
+        shown = result.modules_importable or probe.ok
+        tests = result.tests_passed if result.outcome == "migrated" else self.best_tests
+        print(f"[{index:>3}] {phase} {tag} {rel:56s} imports={shown:>3}/{probe.total} "
+              f"tests={tests:>2} att={result.attempts} rb={result.rollbacks} "
+              f"{result.duration_s}s {result.error}", flush=True)
+
     def run(self, max_iterations: int = 150, codemod_first: bool = True) -> RunMetrics:
         with obs.trace(f"upshift-run:{self.config_name}", kind="WORKFLOW",
                        config=self.config_name, target=self.target.name):
@@ -307,12 +338,34 @@ class MigrationAgent:
                 index += 1
                 self.picks[rel] = self.picks.get(rel, 0) + 1
                 result = self.migrate_file(rel, index, probe)
-                tag = {"migrated": "ok  ", "no-change": "same", "redirect": "->  ",
-                       "quarantined": "QUAR"}[result.outcome]
-                shown = result.modules_importable or probe.ok
-                print(f"[{index:>3}] {tag} {rel:58s} imports={shown:>3}/{probe.total} "
-                      f"att={result.attempts} rb={result.rollbacks} {result.duration_s}s "
-                      f"{result.error}", flush=True)
+                self._print(index, "import", rel, result, probe)
+
+            # Phase 2. Import-clean is not working: v2 makes implicitly-optional
+            # fields required, so models import and then fail on construction.
+            # Now the regression tests drive: blame each failing test on the
+            # model or source file behind it and fix the largest group first.
+            self.picks.clear()
+            while index < max_iterations:
+                tests, failures = self._run_green_detailed()
+                self.best_tests = max(self.best_tests, tests.passed)
+                if not failures:
+                    print("all regression tests pass", flush=True)
+                    break
+                blame = self.target.blame_tests(failures)
+                ranked = sorted(blame.items(), key=lambda kv: -len(kv[1]))
+                pick = next(((r, f) for r, f in ranked
+                             if self.picks.get(r, 0) < MAX_PICKS_PER_FILE), None)
+                if pick is None:
+                    print("no test failure left that can be moved", flush=True)
+                    break
+                rel, mine = pick
+                index += 1
+                self.picks[rel] = self.picks.get(rel, 0) + 1
+                errors = "\n".join(f"{f['module']}: {f['err']}" for f in mine[:4])
+                errors += "\n\nTraceback (tail):\n" + mine[0].get("tb", "")[-1500:]
+                probe = self._import_check()
+                result = self.migrate_file(rel, index, probe, errors=errors, affected=len(mine))
+                self._print(index, "tests ", rel, result, probe)
 
             final = self._import_check()
             tests = self._run_green()

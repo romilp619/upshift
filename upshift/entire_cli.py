@@ -1,4 +1,4 @@
-"""Thin wrappers over the Entire CLI: Graph, Brain, Checkpoints.
+"""Thin wrappers over the Entire CLI: Graph and search.
 
 Every call is best-effort: if Entire is unavailable the agent degrades to a
 plain migration run, which is exactly the `no-entire` ablation config.
@@ -41,7 +41,7 @@ def _run(args: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str, str]
 class Entire:
     repo: Path
     use_graph: bool = True
-    use_brain: bool = True
+    use_search: bool = True
     use_checkpoints: bool = True
     last_error: str = ""
 
@@ -55,11 +55,6 @@ class Entire:
         _, out, _ = _run(["graph", "index"], self.repo, timeout=900)
         return out
 
-    def brain_setup(self) -> str:
-        if not self.use_brain:
-            return ""
-        _, out, _ = _run(["brain", "setup"], self.repo, timeout=900)
-        return out
 
     # --- read ------------------------------------------------------------
     def graph_search(self, query: str) -> str:
@@ -79,18 +74,7 @@ class Entire:
             return ""
         return out
 
-    def brain_brief(self, task: str) -> str:
-        """Context Brain has gathered for this task, including past decisions."""
-        if not self.use_brain:
-            return ""
-        code, out, err = _run(["brain", "brief", task], self.repo)
-        return out if code == 0 else ""
 
-    def brain_recall(self, search: str) -> str:
-        if not self.use_brain:
-            return ""
-        code, out, err = _run(["brain", "recall", search], self.repo)
-        return out if code == 0 else ""
 
     def search(self, query: str, limit: int = 3) -> list[dict]:
         """Hybrid semantic + keyword search over this repo's checkpoints,
@@ -98,7 +82,7 @@ class Entire:
         agents. This is the recall half of the agent's memory: Brain is not in
         CLI 0.11.4, but the repo's own history - including earlier Upshift
         commits that carry the lessons they learned - is searchable here."""
-        if not self.use_brain:
+        if not self.use_search:
             return []
         code, out, _ = _run(["search", query, "--json", "--compact"], self.repo, timeout=60)
         if code != 0 or not out.strip():
@@ -110,12 +94,6 @@ class Entire:
         return [r for r in rows if isinstance(r, dict)][:limit]
 
     # --- write -----------------------------------------------------------
-    def brain_remember(self, fact: str, path: str = ".") -> bool:
-        """Persist a convention learned about THIS repo, for later files."""
-        if not self.use_brain:
-            return False
-        code, _, _ = _run(["brain", "remember", fact, "--path", path], self.repo)
-        return code == 0
 
     def graph_stats(self) -> str:
         code, out, _ = _run(["graph", "stats"], self.repo)

@@ -36,6 +36,12 @@ annotate it ClassVar[...] (from typing). Otherwise give it a real type.
 give them `= None` when v1 behaviour relied on that.
 - Overriding a parent field without an annotation is an error; repeat the annotation.
 - Import ClassVar from typing, never from pydantic.
+- v1 internals: Model.__fields__[name].field_info -> Model.model_fields[name] (already \
+a FieldInfo); .outer_type_ / .type_ -> .annotation; .required -> .is_required(); \
+.default stays.
+- A model built with only some fields in tests or callers worked in v1 when the \
+missing fields were Optional; in v2 add `= None` to those fields rather than \
+changing the callers.
 """
 
 DIAGNOSE_SYSTEM = """\
