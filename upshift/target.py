@@ -166,7 +166,7 @@ class Target:
             # Check the pin out as a branch, not a bare commit. A detached HEAD
             # cannot carry a Trail, and Entire reports the branch as "HEAD".
             subprocess.run(
-                ["git", "checkout", "--quiet", "-B", self.branch, self.commit],
+                ["git", "checkout", "--quiet", "--force", "-B", self.branch, self.commit],
                 cwd=self.path, check=True,
             )
         return self.path
@@ -185,6 +185,23 @@ class Target:
             ["git", "clean", "-qfd", "--exclude=.entire", "--exclude=.venv"],
             cwd=self.path, check=True,
         )
+        self.ensure_entire()
+
+    def ensure_entire(self) -> None:
+        """Make sure Entire is still enabled after a reset.
+
+        An earlier reset deleted .entire/ - it had been committed on the work
+        branch, so `reset --hard <pin>` removed it as a tracked file - and Entire
+        silently reported the repo as "not set up" mid-run. The pin now carries
+        .entire/ itself; this restores it from bench/entire/ if it ever goes.
+        """
+        from .config import ROOT
+        dot = self.path / ".entire"
+        src = ROOT / "bench" / "entire"
+        if (dot / "settings.json").exists() or not src.exists():
+            return
+        import shutil
+        shutil.copytree(src, dot, dirs_exist_ok=True)
 
     # --- discovery -------------------------------------------------------
     def run_green(self, timeout: int = 300) -> "TestResult":

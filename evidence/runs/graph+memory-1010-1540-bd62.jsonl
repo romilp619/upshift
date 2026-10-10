@@ -1,0 +1,1 @@
+{"type": "file", "index": 0, "path": "(bump-pydantic)", "outcome": "codemod", "attempts": 11, "steps": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "rollbacks": 0, "memory_recalled": 0, "memory_written": 0, "duration_s": 0.0, "modules_importable": 31, "tests_passed": 0, "error": ""}

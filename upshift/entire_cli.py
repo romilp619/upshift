@@ -43,6 +43,7 @@ class Entire:
     use_graph: bool = True
     use_brain: bool = True
     use_checkpoints: bool = True
+    last_error: str = ""
 
     # --- setup -----------------------------------------------------------
     def enable(self, agent: str = "claude-code") -> None:
@@ -65,8 +66,18 @@ class Entire:
         """Ranked source regions for a plain-language task description."""
         if not self.use_graph:
             return ""
-        code, out, err = _run(["graph", "search", query], self.repo)
-        return out if code == 0 else ""
+        # The query is a flag, not a positional. The old positional form errored
+        # with "received unexpected arguments" and, because failures return "",
+        # Graph context silently never reached the agent.
+        code, out, err = _run(
+            ["graph", "search", "--repo", ".", "--query", query,
+             "--format", "agent", "--top-k", "6", "--max-context-bytes", "6000"],
+            self.repo, timeout=180,
+        )
+        if code != 0:
+            self.last_error = (err or out).strip()[:300]
+            return ""
+        return out
 
     def brain_brief(self, task: str) -> str:
         """Context Brain has gathered for this task, including past decisions."""

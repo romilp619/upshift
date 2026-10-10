@@ -7,7 +7,9 @@
 targets:
   - name: python-client
     url: https://github.com/steamship-core/python-client
-    commit: 62b3f9659fd43ce4fe62103b6488514259d1956f
+    # 62b3f96 (upstream HEAD) plus .entire/ only - source is identical, so the
+    # baselines are unchanged, and the Entire config survives every reset.
+    commit: 3bcc5d794bf40ec29fba9d661791f691ee367c55
     migration: pydantic-v1-to-v2
     # Run from the target's own venv so its pinned deps stay isolated from ours.
     test_cmd: [".venv/bin/python", "-m", "pytest", "-q", "--no-header", "--tb=no", "-p", "no:cacheprovider"]
