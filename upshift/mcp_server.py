@@ -69,20 +69,56 @@ def _cost(inp: float, out: float, model: str) -> float:
 
 @server.tool(description="Measured cost to migrate one source file, across every candidate model.")
 def unit_economics() -> dict:
+    """Reports median alongside mean.
+
+    Token use per file is heavily skewed - one 10.8k-output file against six
+    under 1.4k - so a mean over a handful of files is not a defensible unit
+    cost. Repeated files across runs are also counted once, since re-migrating
+    the same file is not a second sample.
+    """
     files, _ = _load()
     billable = [f for f in files if f["outcome"] in ("migrated", "no-change")]
     if not billable:
         return {"error": "no runs recorded yet"}
-    n = len(billable)
-    inp = sum(f["input_tokens"] for f in billable) / n
-    out = sum(f["output_tokens"] for f in billable) / n
+
+    # Latest observation per distinct file.
+    distinct: dict[str, dict] = {}
+    for f in billable:
+        distinct[f["path"]] = f
+    rows = list(distinct.values())
+    n = len(rows)
+
+    def _median(values: list[float]) -> float:
+        values = sorted(values)
+        mid = len(values) // 2
+        return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
+
+    ins = [f["input_tokens"] for f in rows]
+    outs = [f["output_tokens"] for f in rows]
+    mean_in, mean_out = sum(ins) / n, sum(outs) / n
+    med_in, med_out = _median(ins), _median(outs)
+
     return {
-        "files_measured": n,
-        "input_tokens_per_file": round(inp),
-        "output_tokens_per_file": round(out),
-        "cost_per_file_usd": {m: _cost(inp, out, m) for m in MODELS},
-        "cost_per_repo_usd_54_files": {m: round(_cost(inp, out, m) * 54, 4) for m in MODELS},
-        "note": "Token counts captured by neatlogs during real runs; not estimated.",
+        "distinct_files_measured": n,
+        "observations": len(billable),
+        "input_tokens_per_file": {"median": round(med_in), "mean": round(mean_in)},
+        "output_tokens_per_file": {"median": round(med_out), "mean": round(mean_out),
+                                   "max": max(outs)},
+        "cost_per_file_usd_median": {m: _cost(med_in, med_out, m) for m in MODELS},
+        "cost_per_file_usd_mean": {m: _cost(mean_in, mean_out, m) for m in MODELS},
+        "cost_per_repo_usd_198_files_median": {
+            m: round(_cost(med_in, med_out, m) * 198, 4) for m in MODELS
+        },
+        "caveats": [
+            f"Sample is {n} distinct files out of 54 that need migrating - treat as indicative.",
+            "Distribution is skewed: one file used 10779 output tokens, the rest under 1400. "
+            "Prefer the median for unit cost and the mean only for worst-case budgeting.",
+            "All recorded runs used the free model, so these are token counts priced at "
+            "list rates, not invoices. No model other than deepseek-v4.1-flash has been "
+            "measured for migration quality.",
+            "Excludes CI compute, Entire/neatlogs subscriptions, failed-attempt retries "
+            "and human review.",
+        ],
     }
 
 
