@@ -10,11 +10,29 @@ RUNS = ROOT / "evidence" / "runs"
 
 
 def load(run_id: str) -> tuple[list[dict], dict]:
+    """Summary line plus file records.
+
+    A run only writes its summary when it finishes, so an interrupted run has
+    none and every headline number read as 0. Derive what we can from the file
+    records instead, and mark the run incomplete rather than reporting zeros.
+    """
     path = RUNS / f"{run_id}.jsonl"
     files, summary = [], {}
     for line in path.read_text().splitlines():
         record = json.loads(line)
         (files.append(record) if record.get("type") == "file" else summary.update(record))
+    if not summary and files:
+        done = [f for f in files if f["outcome"] == "migrated"]
+        summary = {
+            "config_name": run_id.rsplit("-", 2)[0],
+            "incomplete": True,
+            "files_total": len({f["path"] for f in files}),
+            "files_migrated": len({f["path"] for f in done}),
+            "modules_importable": max((f.get("modules_importable", 0) for f in files), default=0),
+            "green_tests": max((f.get("tests_passed", 0) for f in files), default=0),
+            "modules_total": 199,
+            "total_rollbacks": sum(f.get("rollbacks", 0) for f in files),
+        }
     return files, summary
 
 
@@ -56,8 +74,11 @@ def ablation(run_ids: list[str]) -> str:
     for run_id in run_ids:
         files, summary = load(run_id)
         stats = _per_file(files)
+        label = summary.get("config_name", run_id)
+        if summary.get("incomplete"):
+            label += " _(incomplete)_"
         lines.append(
-            f"| {summary.get('config_name', run_id)} "
+            f"| {label} "
             f"| **{summary.get('modules_importable', 0)} / "
             f"{summary.get('modules_total', 0) or 199}** "
             f"| {summary.get('green_tests', 0)} "
