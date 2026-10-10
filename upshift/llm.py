@@ -27,6 +27,34 @@ PRICING = {
     "tokenharbor/qwen3.8-max":       (2.00,  6.00),
     "tokenharbor/kimi-k3":           (3.00, 15.00),
 }
+
+# Token Harbor returns bare model ids (no "tokenharbor/" prefix) from /v1/models.
+# A ":free" suffix means the campaign/free-tier route, which is never billed.
+GATEWAY_PRICING = {
+    "deepseek-v4.1-flash": (0.28, 0.42),
+    "deepseek-v4-flash":   (0.28, 0.42),
+    "deepseek-v4-pro":     (1.00,  3.00),
+    "deepseek-v3.2":       (0.28,  0.42),
+    "gemini-3.8-flash":    (0.50,  3.00),
+    "glm-5.3":             (1.40,  4.40),
+    "grok-4.7":            (2.00,  6.00),
+    "qwen3.8-max":         (2.00,  6.00),
+    "muse-spark-1-3":      (1.25,  4.25),
+}
+
+
+def rates(model: str) -> tuple[float, float]:
+    """(input, output) USD per 1M tokens for any model id we might be given."""
+    if model.endswith(":free"):
+        return (0.0, 0.0)          # campaign route - never billed
+    key = model.removeprefix("tokenharbor/")
+    if key in PRICING:
+        return PRICING[key]
+    if model in PRICING:
+        return PRICING[model]
+    if key in GATEWAY_PRICING:
+        return GATEWAY_PRICING[key]
+    return PRICING["claude-opus-5-5"]
 CACHE_READ_DISCOUNT = 0.05   # cache reads bill at $0.20/MTok on opus-5-5
 CACHE_WRITE_MULTIPLIER = 1.25
 
@@ -56,7 +84,7 @@ class Claude:
         return "claude" in self.model.lower()
 
     def _price(self, usage) -> float:
-        inp, out = PRICING.get(self.model, PRICING["claude-opus-5-5"])
+        inp, out = rates(self.model)
         fresh = getattr(usage, "input_tokens", 0) or 0
         cread = getattr(usage, "cache_read_input_tokens", 0) or 0
         cwrite = getattr(usage, "cache_creation_input_tokens", 0) or 0
