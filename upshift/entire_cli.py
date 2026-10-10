@@ -81,6 +81,23 @@ class Entire:
         code, out, err = _run(["brain", "recall", search], self.repo)
         return out if code == 0 else ""
 
+    def search(self, query: str, limit: int = 3) -> list[dict]:
+        """Hybrid semantic + keyword search over this repo's checkpoints,
+        sessions and commits. `--compact` is the shape Entire documents for
+        agents. This is the recall half of the agent's memory: Brain is not in
+        CLI 0.11.4, but the repo's own history - including earlier Upshift
+        commits that carry the lessons they learned - is searchable here."""
+        if not self.use_brain:
+            return []
+        code, out, _ = _run(["search", query, "--json", "--compact"], self.repo, timeout=60)
+        if code != 0 or not out.strip():
+            return []
+        try:
+            rows = json.loads(out).get("results", [])
+        except (json.JSONDecodeError, AttributeError):
+            return []
+        return [r for r in rows if isinstance(r, dict)][:limit]
+
     # --- write -----------------------------------------------------------
     def brain_remember(self, fact: str, path: str = ".") -> bool:
         """Persist a convention learned about THIS repo, for later files."""

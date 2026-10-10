@@ -42,16 +42,34 @@ class TestResult:
 
 
 _IMPORT_PROBE = """
-import importlib, pkgutil, json, sys
-import {pkg}
+import importlib, json, os, sys, traceback
+# Enumerate modules from the filesystem, not pkgutil.walk_packages. walk_packages
+# only swallows ImportError: any other exception in a package __init__ - a
+# PydanticUserError, say - terminates the whole walk, so one broken subpackage
+# reported the entire package as 0 importable while most of it loaded fine.
+root = os.path.join("src", "{pkg}") if os.path.isdir(os.path.join("src", "{pkg}")) else "{pkg}"
+base = os.path.dirname(root)
+if base and base not in sys.path:
+    sys.path.insert(0, base)
+names = []
+for dirpath, _, filenames in os.walk(root):
+    for fn in sorted(filenames):
+        if not fn.endswith(".py"):
+            continue
+        rel = os.path.relpath(os.path.join(dirpath, fn), base or ".")[:-3]
+        mod = rel.replace(os.sep, ".")
+        if mod.endswith(".__init__"):
+            mod = mod[: -len(".__init__")]
+        names.append(mod)
 ok, bad = [], []
-for m in pkgutil.walk_packages({pkg}.__path__, "{pkg}."):
+for name in sorted(set(names)):
     try:
-        importlib.import_module(m.name)
-        ok.append(m.name)
-    except Exception as e:
-        bad.append({{"module": m.name, "err": f"{{type(e).__name__}}: {{e}}"[:300]}})
-print("UPSHIFT_IMPORTS " + json.dumps({{"ok": len(ok), "bad": len(bad), "failures": bad[:5]}}))
+        importlib.import_module(name)
+        ok.append(name)
+    except BaseException as e:
+        tb = traceback.format_exc()
+        bad.append({{"module": name, "err": f"{{type(e).__name__}}: {{e}}"[:300], "tb": tb[-2500:]}})
+print("UPSHIFT_IMPORTS " + json.dumps({{"ok": len(ok), "bad": len(bad), "failures": bad}}))
 """
 
 
@@ -77,6 +95,29 @@ class ImportResult:
     @property
     def first_failing_module(self) -> str:
         return (self.failures or [{}])[0].get("module", "") if self.failures else ""
+
+    def blame(self, repo: "Path") -> dict:
+        """repo-relative file -> the failures whose traceback ends inside it.
+
+        The deepest in-repo frame is where the interpreter actually gave up, so
+        it is the best single guess at which file to edit. Ranking files by how
+        many failing modules they account for fixes the biggest unlock first.
+        """
+        out: dict = {}
+        for failure in self.failures or []:
+            tb = failure.get("tb", "")
+            deepest = ""
+            for match in re.finditer(r'File "([^"]+\.py)", line \d+', tb):
+                path = match.group(1)
+                if "/site-packages/" in path or "<" in path:
+                    continue
+                try:
+                    deepest = str(Path(path).resolve().relative_to(Path(repo).resolve()))
+                except ValueError:
+                    continue
+            if deepest:
+                out.setdefault(deepest, []).append(failure)
+        return out
 
     def blocking_file(self, repo: "Path") -> str:
         """The source file the interpreter died in, repo-relative.
@@ -106,6 +147,7 @@ class Target:
     test_cmd: list[str] = None
     venv: Path = None
     branch: str = "upshift/pydantic-v2"   # Trails are per-branch
+    green_tests: list = None              # offline-passing subset: the regression guard
 
     @property
     def path(self) -> Path:
@@ -145,6 +187,24 @@ class Target:
         )
 
     # --- discovery -------------------------------------------------------
+    def run_green(self, timeout: int = 300) -> "TestResult":
+        """Only the tests that pass offline under v1. The rest need the hosted
+        API and would read as regressions that have nothing to do with us."""
+        return self.run_tests(only=self.green_tests or None, timeout=timeout)
+
+    def restore_file(self, rel: str) -> None:
+        subprocess.run(["git", "checkout", "HEAD", "--", rel], cwd=self.path,
+                       capture_output=True)
+
+    def commit_changes(self, message: str) -> str:
+        """Named to avoid the dataclass field `commit`, the pinned SHA."""
+        subprocess.run(["git", "add", "-A", "--", "src"], cwd=self.path, capture_output=True)
+        subprocess.run(["git", "-c", "user.name=Upshift", "-c", "user.email=upshift@users.noreply.github.com",
+                        "commit", "--no-verify", "-q", "-m", message],
+                       cwd=self.path, capture_output=True)
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.path,
+                              capture_output=True, text=True).stdout.strip()
+
     def next_blocking_file(self) -> str:
         """Repo-relative path of the file currently breaking the import chain."""
         return self.import_check().blocking_file(self.path)
@@ -180,8 +240,9 @@ class Target:
             if line.startswith("UPSHIFT_IMPORTS "):
                 import json as _json
                 d = _json.loads(line[len("UPSHIFT_IMPORTS "):])
+                first_tb = d["failures"][0].get("tb", "") if d["failures"] else ""
                 return ImportResult(ok=d["ok"], bad=d["bad"], failures=d["failures"],
-                                    traceback=combined)
+                                    traceback=first_tb or combined)
         # Probe never printed: the package failed at the top-level import.
         tail = combined.strip().splitlines()
         err = tail[-1] if tail else "import failed before probe"

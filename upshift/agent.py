@@ -1,22 +1,36 @@
-"""The migration agent: plan -> migrate -> verify -> recover -> remember."""
+"""The migration agent.
+
+Loop: ask the interpreter what is broken -> pick the file that explains the most
+failures -> gather context (Entire Graph, Entire search, lessons so far) ->
+patch -> verify against the import probe and the regression tests -> keep or
+roll back -> write down what was learned.
+
+The interpreter drives the work rather than a file list. A regex over the
+source cannot tell which file is actually breaking the build; a traceback can.
+"""
 from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
 
 from . import obs
 from .config import CONFIG
-from .entire_cli import Entire, GitCheckpoint
+from .entire_cli import Entire
 from .guard import check as guard_check
 from .llm import Claude, LLMResult
 from .metrics import FileResult, RunMetrics
-from .prompts import DIAGNOSE_SYSTEM, LESSON_SYSTEM, MIGRATE_SYSTEM
-from .target import Target
+from .prompts import LESSON_SYSTEM, MIGRATE_SYSTEM
+from .target import ImportResult, Target
 
 _FENCE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
+_REDIRECT = re.compile(r"NO_CHANGE_NEEDED:\s*(\S+\.py)")
+
+MAX_PICKS_PER_FILE = 4   # a file with several errors is revisited, but not forever
 
 
 def _extract_code(text: str) -> str:
@@ -38,233 +52,212 @@ class MigrationAgent:
     def __init__(
         self,
         target: Target,
-        config_name: str = "graph+brain",
+        config_name: str = "graph+memory",
         use_graph: bool = True,
-        use_brain: bool = True,
-        use_checkpoints: bool = True,
+        use_memory: bool = True,
     ):
         self.target = target
         self.config_name = config_name
-        self.entire = Entire(
-            repo=target.path,
-            use_graph=use_graph,
-            use_brain=use_brain,
-            use_checkpoints=use_checkpoints,
-        )
-        self.git = GitCheckpoint(repo=target.path)
+        self.use_graph = use_graph
+        self.use_memory = use_memory
+        # Entire's search lives behind the use_brain switch in entire_cli.
+        self.entire = Entire(repo=target.path, use_graph=use_graph, use_brain=use_memory)
         self.llm = Claude()
         self.run_id = f"{config_name}-{time.strftime('%m%d-%H%M')}-{uuid.uuid4().hex[:4]}"
         self.metrics = RunMetrics(
             run_id=self.run_id, config_name=config_name, target_repo=target.name
         )
-        # High-water marks. A patch may never take these backwards.
-        self.baseline_imports = 0
-        self.baseline_tests = 0
-        self.blocking_before = ""
-        self.extra_files = 0      # blockers the regex heuristic missed
-        self.current_error = ""
-        self.stuck: set[str] = set()   # blockers we could not move; never re-pick
+        self.lessons: list[str] = []
+        self.picks: dict[str, int] = {}
+        self.redirects: list[str] = []
+        self.best_imports = 0
+        self.best_tests = 0
 
     # --- instrumented tools ---------------------------------------------
+    @obs.span(kind="TOOL", tool_name="import_check")
+    def _import_check(self) -> ImportResult:
+        return self.target.import_check()
+
+    @obs.span(kind="TOOL", tool_name="run_green_tests")
+    def _run_green(self):
+        return self.target.run_green(timeout=300)
+
     @obs.span(kind="RETRIEVER", tool_name="entire_graph_search")
     def _graph_search(self, query: str) -> str:
         return self.entire.graph_search(query)
 
-    @obs.span(kind="RETRIEVER", tool_name="entire_brain_brief")
-    def _brain_brief(self, task: str) -> str:
-        return self.entire.brain_brief(task)
+    @obs.span(kind="RETRIEVER", tool_name="entire_search")
+    def _entire_search(self, query: str) -> list[dict]:
+        return self.entire.search(query)
 
-    @obs.span(kind="TOOL", tool_name="entire_brain_remember")
-    def _brain_remember(self, fact: str, scope: str) -> bool:
-        return self.entire.brain_remember(fact, scope or ".")
+    @obs.span(kind="TOOL", tool_name="codemod")
+    def _codemod(self) -> int:
+        """bump-pydantic first: it does the mechanical renames for free and the
+        agent spends its budget on what a codemod cannot infer."""
+        exe = self.target.path / ".venv" / "bin" / "bump-pydantic"
+        cmd = [str(exe) if exe.exists() else (shutil.which("bump-pydantic") or "bump-pydantic"),
+               "src"]
+        subprocess.run(cmd, cwd=self.target.path, capture_output=True, text=True, timeout=1800)
+        changed = subprocess.run(["git", "diff", "--name-only"], cwd=self.target.path,
+                                 capture_output=True, text=True).stdout.split()
+        if changed:
+            self.target.commit_changes("codemod: bump-pydantic\n\nMechanical v1->v2 renames. "
+                               "Upshift finishes what this cannot infer.")
+        return len(changed)
 
-    @obs.span(kind="TOOL", tool_name="import_check")
-    def _import_check(self):
-        return self.target.import_check()
-
-    @obs.span(kind="TOOL", tool_name="run_tests")
-    def _run_tests(self, only=None, timeout: int = 300):
-        return self.target.run_tests(only=only, timeout=timeout)
-
-    # --- per-file work ---------------------------------------------------
-    def _context_for(self, rel: Path) -> tuple[str, int]:
-        """Gather Brain decisions + Graph blast radius for one file."""
+    # --- context ---------------------------------------------------------
+    def _context_for(self, rel: str, errors: str) -> tuple[str, int]:
         parts, recalled = [], 0
-        brief = self._brain_brief(f"migrate {rel} from pydantic v1 to v2")
-        if brief.strip():
-            parts.append(f"## What this repository already decided\n{brief.strip()}")
-            recalled = brief.count("\n") + 1
-        graph = self._graph_search(f"callers and shared state of {rel}")
-        if graph.strip():
-            parts.append(f"## Related code (Entire Graph)\n{graph.strip()}")
+        if self.use_graph:
+            graph = self._graph_search(f"definition, base classes and callers of models in {rel}")
+            if graph.strip():
+                parts.append(f"## Related code (Entire Graph)\n{graph.strip()[:3000]}")
+        if self.use_memory:
+            if self.lessons:
+                parts.append("## Conventions already learned in this repository\n"
+                             + "\n".join(f"- {x}" for x in self.lessons[-12:]))
+                recalled += len(self.lessons[-12:])
+            last_line = errors.strip().splitlines()[-1] if errors.strip() else ""
+            hits = self._entire_search(f"pydantic {last_line[:120]} {Path(rel).stem}")
+            if hits:
+                lines = [f"- {h.get('date', '')[:10]} {h.get('title', '')} ({h.get('id', '')[:8]})"
+                         for h in hits]
+                parts.append("## Related history in this repo (Entire search)\n" + "\n".join(lines))
+                recalled += len(hits)
         return "\n\n".join(parts), recalled
 
-    def migrate_file(self, rel: Path, index: int) -> FileResult:
+    @staticmethod
+    def _errors_for(failures: list[dict], limit: int = 3) -> str:
+        """Distinct error messages, plus one traceback tail for orientation."""
+        seen, msgs = set(), []
+        for f in failures:
+            msg = f.get("err", "").splitlines()[0] if f.get("err") else ""
+            if msg not in seen:
+                seen.add(msg)
+                msgs.append(f"{f['module']}: {f.get('err', '')}")
+            if len(msgs) >= limit:
+                break
+        tail = (failures[0].get("tb", "") if failures else "")[-1500:]
+        return ("\n".join(msgs) + "\n\nTraceback (tail):\n" + tail).strip()
+
+    def _build_prompt(self, rel: str, original: str, context: str, hint: str,
+                      errors: str, blamed: int) -> str:
+        chunks = [
+            f"# File to fix: {rel}",
+            # Without the error the model sees a plausible file, finds nothing
+            # wrong and hands it back unchanged. It goes in the first attempt.
+            f"## The interpreter is failing in this file ({blamed} modules affected)\n"
+            f"```\n{errors}\n```",
+        ]
+        if context:
+            chunks.append(context)
+        if hint:
+            chunks.append(f"## Your previous attempt was rolled back\n{hint}")
+        chunks.append(f"## Current contents of {rel}\n```python\n{original}```")
+        return "\n\n".join(chunks)
+
+    # --- one file ----------------------------------------------------------
+    def migrate_file(self, rel: str, index: int, before: ImportResult) -> FileResult:
         started = time.time()
         abs_path = self.target.path / rel
         original = abs_path.read_text()
-        result = FileResult(index=index, path=str(rel), outcome="quarantined")
+        result = FileResult(index=index, path=rel, outcome="quarantined")
+        blame_before = before.blame(self.target.path).get(rel, [])
+        errors = self._errors_for(blame_before)
 
-        with obs.trace(f"migrate:{rel}", kind="AGENT", file=str(rel), index=index):
-            # Which file is blocking the import chain before we touch anything.
-            probe = self.target.import_check()
-            self.blocking_before = probe.blocking_file(self.target.path)
-            self.current_error = self._error_excerpt(probe)
-            context, result.brain_facts_recalled = self._context_for(rel)
-            savepoint = self.git.save()
+        with obs.trace(f"migrate:{rel}", kind="AGENT", file=rel, index=index):
+            context, result.memory_recalled = self._context_for(rel, errors)
             hint = ""
-
             for attempt in range(1, CONFIG.max_attempts_per_file + 1):
                 result.attempts = attempt
-                prompt = self._build_prompt(rel, original, context, hint,
-                                            self.current_error)
+                prompt = self._build_prompt(rel, original, context, hint, errors,
+                                            len(blame_before))
                 llm: LLMResult = self.llm.ask(MIGRATE_SYSTEM, prompt)
                 self._account(result, llm)
 
-                migrated = _extract_code(llm.text)
+                redirect = _REDIRECT.search(llm.text)
+                if redirect and redirect.group(1) == rel:
+                    # Pointing at the file it is already editing is not a
+                    # redirect; it means "the fix is here" - so make it.
+                    hint = (f"You said the root cause is in {rel}. That is this "
+                            "file: fix it here and return the complete file.")
+                    result.rollbacks += 1
+                    continue
+                if redirect and (self.target.path / redirect.group(1)).exists():
+                    result.outcome = "redirect"
+                    result.error = f"root cause is in {redirect.group(1)}"
+                    self.redirects.append(redirect.group(1))
+                    break
 
-                # Nothing to do is a real outcome, not a success. Counting it as
-                # "migrated" would inflate every number in the evidence table.
+                migrated = _extract_code(llm.text)
                 if migrated.strip() == original.strip():
                     result.outcome = "no-change"
                     break
 
                 ok, why = guard_check(original, migrated)
                 if not ok:
-                    hint = f"Your previous patch was REJECTED by the guard: {why}. Fix it properly."
+                    hint = f"The guard rejected it: {why}. Return the complete file."
                     result.rollbacks += 1
-                    self.git.restore(savepoint)
                     continue
 
                 abs_path.write_text(migrated)
+                after = self._import_check()
+                blame_after = after.blame(self.target.path).get(rel, [])
 
-                # Gate 1 - imports. While the package is too broken for pytest to
-                # even collect, this is the only honest signal. Judge PROGRESS, not
-                # absolute counts: when the probe crashes outright ok and total are
-                # both 0, so "ok == total" would read as total success.
-                imports = self._import_check()
-                blocker = imports.blocking_file(self.target.path)
-
-                if imports.ok < self.baseline_imports:
-                    hint = (f"Your patch REDUCED importable modules "
-                            f"{self.baseline_imports} -> {imports.ok}. "
-                            f"First error: {imports.first_error}")
+                if after.ok < before.ok:
+                    hint = (f"Importable modules fell {before.ok} -> {after.ok}. "
+                            f"First new failure: {after.first_failing_module}: {after.first_error}")
                     result.rollbacks += 1
-                    self.git.restore(savepoint)
+                    self.target.restore_file(rel)
+                    continue
+                if not (after.ok > before.ok or len(blame_after) < len(blame_before)):
+                    still = self._errors_for(blame_after, limit=2) if blame_after else after.first_error
+                    hint = f"No progress: the same modules still fail.\nCurrent error:\n{still}"
+                    result.rollbacks += 1
+                    self.target.restore_file(rel)
                     continue
 
-                gained = imports.ok > self.baseline_imports
-                # Still crashing, but no longer in THIS file: we cleared one blocker
-                # and uncovered the next. That is real progress even at ok == 0.
-                unblocked = (
-                    imports.crashed
-                    and self.blocking_before == str(rel)
-                    and blocker != str(rel)
-                )
-                fully_up = (not imports.crashed) and imports.total > 0 and imports.bad == 0
-
-                if not (gained or unblocked or fully_up):
-                    hint = (
-                        f"Your patch did not move the migration forward. "
-                        f"importable={imports.ok}/{imports.total or '?'} "
-                        f"still blocked in {blocker or 'unknown'}: {imports.first_error}"
-                    )
+                tests = self._run_green()
+                if tests.passed < self.best_tests:
+                    hint = (f"Passing regression tests fell {self.best_tests} -> {tests.passed}.\n"
+                            f"{tests.raw_tail[-1200:]}")
                     result.rollbacks += 1
-                    self.git.restore(savepoint)
-                    continue
-
-                # Gate 2 - regression suite, meaningful only once it can collect.
-                tests = self._run_tests(timeout=300) if not imports.crashed else None
-                if tests is not None and tests.passed < self.baseline_tests:
-                    hint = (f"Your patch broke passing tests "
-                            f"{self.baseline_tests} -> {tests.passed}.")
-                    result.rollbacks += 1
-                    self.git.restore(savepoint)
+                    self.target.restore_file(rel)
                     continue
 
                 result.outcome = "migrated"
-                result.modules_importable = imports.ok
-                result.tests_passed = tests.passed if tests else 0
-                self.baseline_imports = max(self.baseline_imports, imports.ok)
-                if tests is not None:
-                    self.baseline_tests = max(self.baseline_tests, tests.passed)
-                self.blocking_before = blocker
-                self._learn(rel, original, migrated, result)
+                result.modules_importable = after.ok
+                result.tests_passed = tests.passed
+                self.best_imports = max(self.best_imports, after.ok)
+                self.best_tests = max(self.best_tests, tests.passed)
+                lesson = self._learn(rel, original, migrated, result)
+                body = f"Modules importable: {before.ok} -> {after.ok}. Tests passing: {tests.passed}."
+                if lesson:
+                    body += f"\n\nUpshift-Lesson: {lesson}"
+                self.target.commit_changes(f"upshift: migrate {rel} to pydantic v2\n\n{body}")
                 break
 
-                # failed: let the agent decide what to do next
-                decision = self._diagnose(rel, migrated, tests.raw_tail, attempt, result)
-                result.rollbacks += 1
-                self.git.restore(savepoint)
-
-                action = decision.get("action", "retry")
-                if action == "quarantine":
-                    result.error = decision.get("reason", "agent quarantined the file")
-                    break
-                if action == "need_context":
-                    extra = self._graph_search(decision.get("hint", str(rel)))
-                    if extra.strip():
-                        context += f"\n\n## Additional context\n{extra.strip()}"
-                hint = decision.get("hint", "") or f"Tests failed:\n{tests.raw_tail[-1200:]}"
-
+        if result.outcome != "migrated":
+            self.target.restore_file(rel)
         result.duration_s = round(time.time() - started, 2)
         self.metrics.record(result)
         return result
 
-    # --- helpers ----------------------------------------------------------
-    @staticmethod
-    def _error_excerpt(probe, limit: int = 1800) -> str:
-        """Tail of the traceback - the exception and the frames nearest it."""
-        text = (probe.traceback or probe.first_error or "").strip()
-        return text[-limit:] if len(text) > limit else text
-
-    def _build_prompt(self, rel: Path, original: str, context: str, hint: str,
-                      error: str = "") -> str:
-        chunks = [f"# File to migrate: {rel}"]
-        if error:
-            # Without this the model sees a plausible-looking file, finds
-            # nothing obviously wrong and hands it back unchanged. The
-            # traceback is the most useful context available and belongs in
-            # the FIRST attempt, not only after one has already failed.
-            chunks.append(
-                "## The interpreter is failing HERE right now\n```\n"
-                + error.strip()
-                + "\n```\nFix this error."
-            )
-        if context:
-            chunks.append(context)
-        if hint:
-            chunks.append(f"## Previous attempt failed\n{hint}")
-        chunks.append(f"## Current contents of {rel}\n```python\n{original}```")
-        return "\n\n".join(chunks)
-
-    @obs.span(kind="CHAIN", tool_name="diagnose_failure")
-    def _diagnose(self, rel, migrated, test_output, attempt, result) -> dict:
-        prompt = (
-            f"File: {rel}\nAttempt {attempt} of {CONFIG.max_attempts_per_file}\n\n"
-            f"## Test output\n{test_output[-3000:]}\n\n"
-            f"## The patch that failed\n```python\n{migrated[:6000]}```"
-        )
-        llm = self.llm.ask(DIAGNOSE_SYSTEM, prompt, effort="medium", max_tokens=2000)
-        self._account(result, llm)
-        return _extract_json(llm.text)
-
-    @obs.span(kind="CHAIN", tool_name="extract_lesson")
-    def _learn(self, rel, original, migrated, result) -> None:
-        """Write what we learned about THIS repo into Entire Brain."""
-        if not self.entire.use_brain:
-            return
-        prompt = (
-            f"File: {rel}\nAttempts needed: {result.attempts}\n\n"
-            f"## Before\n```python\n{original[:4000]}```\n\n"
-            f"## After\n```python\n{migrated[:4000]}```"
-        )
+    def _learn(self, rel, original, migrated, result) -> str:
+        """One repo-specific convention, carried into later prompts and written
+        into the commit so Entire search can recall it on a future run."""
+        if not self.use_memory:
+            return ""
+        prompt = (f"File: {rel}\nAttempts needed: {result.attempts}\n\n"
+                  f"## Before\n```python\n{original[:4000]}```\n\n"
+                  f"## After\n```python\n{migrated[:4000]}```")
         llm = self.llm.ask(LESSON_SYSTEM, prompt, effort="low", max_tokens=1000)
         self._account(result, llm)
-        lesson = _extract_json(llm.text)
-        fact = (lesson.get("fact") or "").strip()
-        if fact and self._brain_remember(fact, lesson.get("scope", ".")):
-            result.brain_facts_written += 1
+        fact = (_extract_json(llm.text).get("fact") or "").strip()
+        if fact:
+            self.lessons.append(fact)
+            result.memory_written += 1
+        return fact
 
     @staticmethod
     def _account(result: FileResult, llm: LLMResult) -> None:
@@ -274,67 +267,61 @@ class MigrationAgent:
         result.cost_usd = round(result.cost_usd + llm.cost_usd, 6)
 
     # --- run --------------------------------------------------------------
-    def _next_file(self, pending: list[Path]) -> Path:
-        """Always work on whatever is currently breaking the import chain.
+    def _pick(self, probe: ImportResult) -> str | None:
+        """Redirects first (the agent said where the cause is), then the file
+        that accounts for the most failing modules."""
+        while self.redirects:
+            rel = self.redirects.pop(0)
+            if self.picks.get(rel, 0) < MAX_PICKS_PER_FILE:
+                return rel
+        ranked = sorted(probe.blame(self.target.path).items(), key=lambda kv: -len(kv[1]))
+        for rel, _ in ranked:
+            if self.picks.get(rel, 0) < MAX_PICKS_PER_FILE:
+                return rel
+        return None
 
-        Order matters more than it looks. The gate accepts a patch only if it
-        moves the migration forward, but a correctly migrated file that is NOT
-        the current blocker shows no progress at all - the package still fails
-        on someone else's error - so it gets rolled back and quarantined.
-        Following the traceback keeps the file under work and the file being
-        measured the same one.
-        """
-        blocker = self.target.import_check().blocking_file(self.target.path)
-        if blocker:
-            for rel in pending:
-                if str(rel) == blocker:
-                    return rel
-            # The blocker is not in the worklist. pydantic_files() is a regex
-            # heuristic and misses files that inherit a model or re-export one;
-            # the traceback is ground truth, so trust it and widen the list.
-            path = self.target.path / blocker
-            if path.exists() and blocker not in self.stuck:
-                self.extra_files += 1
-                return Path(blocker)
-        return pending[0]
-
-    def run(self, files: list[Path], commit_each: bool = True) -> RunMetrics:
-        pending = list(files)
-        total = len(pending)
+    def run(self, max_iterations: int = 150, codemod_first: bool = True) -> RunMetrics:
         with obs.trace(f"upshift-run:{self.config_name}", kind="WORKFLOW",
                        config=self.config_name, target=self.target.name):
-            index = 0
-            while pending:
-                index += 1
-                rel = self._next_file(pending)
-                if rel in pending:
-                    pending.remove(rel)
-                else:
-                    total += 1          # a blocker the heuristic had missed
-                result = self.migrate_file(rel, index)
-                status = {"migrated": "ok  ", "no-change": "skip",
-                          "quarantined": "QUAR"}.get(result.outcome, "?   ")
-                print(
-                    f"[{index:>3}/{total}] {status} {rel} "
-                    f"steps={result.steps} rollbacks={result.rollbacks} "
-                    f"${result.cost_usd:.4f} {result.duration_s}s"
-                )
-                if result.outcome != "migrated":
-                    # Otherwise an unmovable blocker is re-selected forever.
-                    self.stuck.add(str(rel))
-                if result.outcome == "migrated" and commit_each:
-                    self.git.commit(f"upshift: migrate {rel} to pydantic v2")
-                if index % CONFIG.full_suite_every == 0:
-                    suite = self._run_tests(timeout=600)
-                    print(f"      full suite: {suite.passed}p/{suite.failed}f/{suite.errors}e")
+            start = self._import_check()
+            print(f"start: {start.ok}/{start.total} modules importable", flush=True)
+            if codemod_first:
+                changed = self._codemod()
+                after = self._import_check()
+                self.metrics.record(FileResult(index=0, path="(bump-pydantic)", outcome="codemod",
+                                               modules_importable=after.ok, attempts=changed))
+                print(f"codemod: {changed} files changed -> {after.ok}/{after.total}", flush=True)
+            self.best_tests = self._run_green().passed
 
-            final = self._run_tests(timeout=900)
-            final_imports = self.target.import_check()
+            index = 0
+            while index < max_iterations:
+                probe = self._import_check()
+                self.best_imports = max(self.best_imports, probe.ok)
+                if probe.bad == 0:
+                    print("all modules import", flush=True)
+                    break
+                rel = self._pick(probe)
+                if rel is None:
+                    print("no file left that can be moved", flush=True)
+                    break
+                index += 1
+                self.picks[rel] = self.picks.get(rel, 0) + 1
+                result = self.migrate_file(rel, index, probe)
+                tag = {"migrated": "ok  ", "no-change": "same", "redirect": "->  ",
+                       "quarantined": "QUAR"}[result.outcome]
+                shown = result.modules_importable or probe.ok
+                print(f"[{index:>3}] {tag} {rel:58s} imports={shown:>3}/{probe.total} "
+                      f"att={result.attempts} rb={result.rollbacks} {result.duration_s}s "
+                      f"{result.error}", flush=True)
+
+            final = self._import_check()
+            tests = self._run_green()
             self.metrics.finish(
-                suite_pass_rate=round(final.pass_rate, 4),
-                modules_importable=final_imports.ok,
-                modules_total=final_imports.total,
-                green_tests=final.passed,
-                baseline_importable=0,   # v2 + untouched source imports nothing
+                suite_pass_rate=round(tests.pass_rate, 4),
+                modules_importable=final.ok,
+                modules_total=final.total,
+                green_tests=tests.passed,
+                baseline_importable=start.ok,
             )
+            print(f"final: {final.ok}/{final.total} modules, {tests.passed} green tests", flush=True)
         return self.metrics

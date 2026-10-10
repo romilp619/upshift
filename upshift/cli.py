@@ -25,6 +25,7 @@ def _load_target(name: str) -> Target:
     return Target(
         name=match["name"], url=match["url"],
         commit=match.get("commit", ""), test_cmd=match.get("test_cmd"),
+        green_tests=match.get("green_tests_subset"),
     )
 
 
@@ -37,8 +38,6 @@ def cmd_setup(args):
     print("entire enabled")
     entire.graph_index()
     print("graph indexed")
-    entire.brain_setup()
-    print("brain ready")
     files = target.pydantic_files()
     print(f"{len(files)} files touch pydantic")
     result = target.run_tests(timeout=600)
@@ -82,18 +81,17 @@ def cmd_run(args):
     target.reset()
 
     flags = {
-        "no-entire":   dict(use_graph=False, use_brain=False, use_checkpoints=False),
-        "graph":       dict(use_graph=True,  use_brain=False, use_checkpoints=False),
-        "graph+ckpt":  dict(use_graph=True,  use_brain=False, use_checkpoints=True),
-        "graph+brain": dict(use_graph=True,  use_brain=True,  use_checkpoints=True),
+        "no-entire":    dict(use_graph=False, use_memory=False),
+        "graph":        dict(use_graph=True,  use_memory=False),
+        "graph+memory": dict(use_graph=True,  use_memory=True),
     }[args.config]
 
     obs.init(workflow_name="upshift", tags=[args.config, target.name])
     agent = MigrationAgent(target, config_name=args.config, **flags)
-    files = target.pydantic_files()[: args.limit] if args.limit else target.pydantic_files()
-    print(f"run {agent.run_id}: {len(files)} files, config={args.config}")
+    print(f"run {agent.run_id}: config={args.config}", flush=True)
     try:
-        metrics = agent.run(files)
+        metrics = agent.run(max_iterations=args.max_iterations,
+                            codemod_first=not args.no_codemod)
     finally:
         obs.flush()
     print(f"\ndone -> {metrics.path}")
@@ -124,9 +122,11 @@ def main():
 
     p = sub.add_parser("run", help="run the migration agent")
     p.add_argument("--target", required=True)
-    p.add_argument("--config", default="graph+brain",
-                   choices=["no-entire", "graph", "graph+ckpt", "graph+brain"])
-    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--config", default="graph+memory",
+                   choices=["no-entire", "graph", "graph+memory"])
+    p.add_argument("--max-iterations", type=int, default=150)
+    p.add_argument("--no-codemod", action="store_true",
+                   help="skip the bump-pydantic pre-pass")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("report", help="print the evidence tables")

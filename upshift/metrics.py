@@ -13,15 +13,15 @@ from .config import ROOT
 class FileResult:
     index: int                  # order within the run (drives the learning curve)
     path: str
-    outcome: str                # migrated | quarantined | skipped
+    outcome: str                # migrated | no-change | redirect | quarantined | codemod
     attempts: int = 0
     steps: int = 0              # LLM turns + tool calls
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
     rollbacks: int = 0
-    brain_facts_recalled: int = 0
-    brain_facts_written: int = 0
+    memory_recalled: int = 0    # lessons + entire search hits in the prompt
+    memory_written: int = 0
     duration_s: float = 0.0
     modules_importable: int = 0   # headline metric, after this file
     tests_passed: int = 0

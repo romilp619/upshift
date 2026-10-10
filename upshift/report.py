@@ -41,7 +41,7 @@ def learning_curve(files: list[dict], bucket: int = 10) -> list[dict]:
             "files": f"{start + 1}-{start + len(chunk)}",
             "steps": round(sum(c["steps"] for c in chunk) / len(chunk), 1),
             "cost": round(sum(c["cost_usd"] for c in chunk) / len(chunk), 4),
-            "recalled": round(sum(c["brain_facts_recalled"] for c in chunk) / len(chunk), 1),
+            "recalled": round(sum(c.get("memory_recalled", c.get("brain_facts_recalled", 0)) for c in chunk) / len(chunk), 1),
         })
     return rows
 
@@ -70,7 +70,7 @@ def ablation(run_ids: list[str]) -> str:
 
 def curve_table(run_id: str) -> str:
     files, _ = load(run_id)
-    lines = ["| Files | Steps/file | Cost/file | Brain facts recalled |", "|---|---|---|---|"]
+    lines = ["| Files | Steps/file | Cost/file | Memory items recalled |", "|---|---|---|---|"]
     for row in learning_curve(files):
         lines.append(
             f"| {row['files']} | {row['steps']} | ${row['cost']:.4f} | {row['recalled']} |"
