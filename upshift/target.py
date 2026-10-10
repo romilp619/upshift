@@ -41,6 +41,63 @@ class TestResult:
         return self.failed == 0 and self.errors == 0 and not self.timed_out and self.passed > 0
 
 
+_IMPORT_PROBE = """
+import importlib, pkgutil, json, sys
+import {pkg}
+ok, bad = [], []
+for m in pkgutil.walk_packages({pkg}.__path__, "{pkg}."):
+    try:
+        importlib.import_module(m.name)
+        ok.append(m.name)
+    except Exception as e:
+        bad.append({{"module": m.name, "err": f"{{type(e).__name__}}: {{e}}"[:300]}})
+print("UPSHIFT_IMPORTS " + json.dumps({{"ok": len(ok), "bad": len(bad), "failures": bad[:5]}}))
+"""
+
+
+@dataclass
+class ImportResult:
+    """How many modules import cleanly. The primary gate: pydantic v2 rejects v1
+    models at class-creation time, so this measures migration directly - and it
+    still works when the package is too broken for pytest to collect."""
+    ok: int = 0
+    bad: int = 0
+    failures: list = None
+    crashed: bool = False
+    traceback: str = ""
+
+    @property
+    def total(self) -> int:
+        return self.ok + self.bad
+
+    @property
+    def first_error(self) -> str:
+        return (self.failures or [{}])[0].get("err", "") if self.failures else ""
+
+    @property
+    def first_failing_module(self) -> str:
+        return (self.failures or [{}])[0].get("module", "") if self.failures else ""
+
+    def blocking_file(self, repo: "Path") -> str:
+        """The source file the interpreter died in, repo-relative.
+
+        Working alphabetically is wasteful: one un-migrated model at the top of
+        the import graph hides every module behind it. The traceback already
+        names the file to fix, so follow it instead of guessing.
+        """
+        best = ""
+        for match in re.finditer(r'File "([^"]+\.py)", line \d+', self.traceback):
+            path = match.group(1)
+            if "/site-packages/" in path or "<" in path:
+                continue
+            try:
+                rel = Path(path).resolve().relative_to(Path(repo).resolve())
+            except ValueError:
+                continue
+            best = str(rel)      # deepest frame inside the repo wins
+        return best
+
+
 @dataclass
 class Target:
     name: str
@@ -74,6 +131,10 @@ class Target:
         subprocess.run(["git", "clean", "-qfd"], cwd=self.path, check=True)
 
     # --- discovery -------------------------------------------------------
+    def next_blocking_file(self) -> str:
+        """Repo-relative path of the file currently breaking the import chain."""
+        return self.import_check().blocking_file(self.path)
+
     def pydantic_files(self) -> list[Path]:
         hits = []
         for py in sorted(self.path.rglob("*.py")):
@@ -86,6 +147,32 @@ class Target:
             except OSError:
                 continue
         return hits
+
+    def import_check(self, package: str = "steamship", timeout: int = 300) -> ImportResult:
+        """Primary gate. Runs in a fresh isolated interpreter so no module cache
+        hides a failure, and -I keeps the target's cwd off sys.path."""
+        python = str(self.path / ".venv" / "bin" / "python")
+        if not Path(python).exists():
+            python = "python3"
+        try:
+            proc = subprocess.run(
+                [python, "-I", "-c", _IMPORT_PROBE.format(pkg=package)],
+                cwd=str(self.path), capture_output=True, text=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return ImportResult(crashed=True)
+        combined = (proc.stdout or "") + (proc.stderr or "")
+        for line in (proc.stdout or "").splitlines():
+            if line.startswith("UPSHIFT_IMPORTS "):
+                import json as _json
+                d = _json.loads(line[len("UPSHIFT_IMPORTS "):])
+                return ImportResult(ok=d["ok"], bad=d["bad"], failures=d["failures"],
+                                    traceback=combined)
+        # Probe never printed: the package failed at the top-level import.
+        tail = combined.strip().splitlines()
+        err = tail[-1] if tail else "import failed before probe"
+        return ImportResult(ok=0, bad=0, crashed=True, traceback=combined,
+                            failures=[{"module": package, "err": err[:300]}])
 
     # --- verification ----------------------------------------------------
     def run_tests(self, only: list[str] | None = None, timeout: int = 300) -> TestResult:

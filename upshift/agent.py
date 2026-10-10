@@ -57,6 +57,10 @@ class MigrationAgent:
         self.metrics = RunMetrics(
             run_id=self.run_id, config_name=config_name, target_repo=target.name
         )
+        # High-water marks. A patch may never take these backwards.
+        self.baseline_imports = 0
+        self.baseline_tests = 0
+        self.blocking_before = ""
 
     # --- instrumented tools ---------------------------------------------
     @obs.span(kind="RETRIEVER", tool_name="entire_graph_search")
@@ -70,6 +74,10 @@ class MigrationAgent:
     @obs.span(kind="TOOL", tool_name="entire_brain_remember")
     def _brain_remember(self, fact: str, scope: str) -> bool:
         return self.entire.brain_remember(fact, scope or ".")
+
+    @obs.span(kind="TOOL", tool_name="import_check")
+    def _import_check(self):
+        return self.target.import_check()
 
     @obs.span(kind="TOOL", tool_name="run_tests")
     def _run_tests(self, only=None, timeout: int = 300):
@@ -95,6 +103,8 @@ class MigrationAgent:
         result = FileResult(index=index, path=str(rel), outcome="quarantined")
 
         with obs.trace(f"migrate:{rel}", kind="AGENT", file=str(rel), index=index):
+            # Which file is blocking the import chain before we touch anything.
+            self.blocking_before = self.target.import_check().blocking_file(self.target.path)
             context, result.brain_facts_recalled = self._context_for(rel)
             savepoint = self.git.save()
             hint = ""
@@ -106,6 +116,13 @@ class MigrationAgent:
                 self._account(result, llm)
 
                 migrated = _extract_code(llm.text)
+
+                # Nothing to do is a real outcome, not a success. Counting it as
+                # "migrated" would inflate every number in the evidence table.
+                if migrated.strip() == original.strip():
+                    result.outcome = "no-change"
+                    break
+
                 ok, why = guard_check(original, migrated)
                 if not ok:
                     hint = f"Your previous patch was REJECTED by the guard: {why}. Fix it properly."
@@ -114,12 +131,59 @@ class MigrationAgent:
                     continue
 
                 abs_path.write_text(migrated)
-                tests = self._run_tests(timeout=300)
 
-                if tests.green or (tests.failed == 0 and tests.errors == 0):
-                    result.outcome = "migrated"
-                    self._learn(rel, original, migrated, result)
-                    break
+                # Gate 1 - imports. While the package is too broken for pytest to
+                # even collect, this is the only honest signal. Judge PROGRESS, not
+                # absolute counts: when the probe crashes outright ok and total are
+                # both 0, so "ok == total" would read as total success.
+                imports = self._import_check()
+                blocker = imports.blocking_file(self.target.path)
+
+                if imports.ok < self.baseline_imports:
+                    hint = (f"Your patch REDUCED importable modules "
+                            f"{self.baseline_imports} -> {imports.ok}. "
+                            f"First error: {imports.first_error}")
+                    result.rollbacks += 1
+                    self.git.restore(savepoint)
+                    continue
+
+                gained = imports.ok > self.baseline_imports
+                # Still crashing, but no longer in THIS file: we cleared one blocker
+                # and uncovered the next. That is real progress even at ok == 0.
+                unblocked = (
+                    imports.crashed
+                    and self.blocking_before == str(rel)
+                    and blocker != str(rel)
+                )
+                fully_up = (not imports.crashed) and imports.total > 0 and imports.bad == 0
+
+                if not (gained or unblocked or fully_up):
+                    hint = (
+                        f"Your patch did not move the migration forward. "
+                        f"importable={imports.ok}/{imports.total or '?'} "
+                        f"still blocked in {blocker or 'unknown'}: {imports.first_error}"
+                    )
+                    result.rollbacks += 1
+                    self.git.restore(savepoint)
+                    continue
+
+                # Gate 2 - regression suite, meaningful only once it can collect.
+                tests = self._run_tests(timeout=300) if not imports.crashed else None
+                if tests is not None and tests.passed < self.baseline_tests:
+                    hint = (f"Your patch broke passing tests "
+                            f"{self.baseline_tests} -> {tests.passed}.")
+                    result.rollbacks += 1
+                    self.git.restore(savepoint)
+                    continue
+
+                result.outcome = "migrated"
+                result.tests_passed = tests.passed if tests else 0
+                self.baseline_imports = max(self.baseline_imports, imports.ok)
+                if tests is not None:
+                    self.baseline_tests = max(self.baseline_tests, tests.passed)
+                self.blocking_before = blocker
+                self._learn(rel, original, migrated, result)
+                break
 
                 # failed: let the agent decide what to do next
                 decision = self._diagnose(rel, migrated, tests.raw_tail, attempt, result)

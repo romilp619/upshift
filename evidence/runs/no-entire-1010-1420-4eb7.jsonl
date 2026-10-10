@@ -1,0 +1,1 @@
+{"type": "file", "index": 1, "path": "src/steamship/data/package/package.py", "outcome": "migrated", "attempts": 1, "steps": 1, "input_tokens": 952, "output_tokens": 10779, "cost_usd": 0.0, "rollbacks": 0, "brain_facts_recalled": 0, "brain_facts_written": 0, "duration_s": 127.62, "error": ""}
