@@ -105,7 +105,7 @@ Ari answering over MCP.
 > I'd never shown it the error. One line in the prompt fixed it. #neatHack
 
 **Post 4 — cfo.ai** (screenshot: Ari's reply)
-> Wired @cfo_ai to my agent's telemetry over MCP so the business plan reads real
+> Wired @arithecfo to my agent's telemetry over MCP so the business plan reads real
 > cost per migration.
 >
 > First thing it did: catch a 2× error in my own unit economics. #neatHack
@@ -115,7 +115,7 @@ Ari answering over MCP.
 > green, «$» in inference.
 >
 > Traced with @neatlogs, context from @EntireHQ Graph + search, priced with
-> @cfo_ai. #neatHack
+> @arithecfo. #neatHack
 
 ---
 
@@ -131,5 +131,6 @@ Ari answering over MCP.
 Window: **Monday 12 October, 7:00–11:55 PM IST.** neatlogs and cfo.ai engage
 with the first 50 quote posts — submit early in the window.
 
-Before submitting: check the handles above (`@neatlogs`, `@EntireHQ`,
-`@cfo_ai`) against the real accounts — they are guesses.
+Handles confirmed from another participant's #neatHack post: `@neatlogs`,
+`@EntireHQ`, `@arithecfo` (cfo.ai). Worth cc'ing on posts: `@HaimantikaM`
+(Entire, judge), `@thevibefounder`, `@simranrambles`, `@bettersayAJ`.
