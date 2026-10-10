@@ -1,0 +1,8 @@
+run_id,config,file,outcome,attempts,rollbacks,input_tokens,output_tokens,duration_s,cost_deepseek-v4.1-flash:free,cost_deepseek-v4.1-flash,cost_claude-sonnet-5-5,cost_claude-opus-5-5
+no-entire-1010-1416-c53c,no-entire,src/steamship/agents/examples/example_assistant.py,migrated,1,0,722,414,3.76,0.0,0.000376,0.005584,0.011168
+no-entire-1010-1416-c53c,no-entire,src/steamship/agents/examples/telegram_bot.py,migrated,1,0,1035,1348,5.14,0.0,0.000856,0.01555,0.0311
+no-entire-1010-1416-c53c,no-entire,src/steamship/agents/logging.py,migrated,1,0,1196,898,4.73,0.0,0.000712,0.011372,0.022744
+no-entire-1010-1419-a9c7,no-entire,src/steamship/agents/examples/example_assistant.py,migrated,1,0,1234,414,3.76,0.0,0.000519,0.006608,0.013216
+no-entire-1010-1419-a9c7,no-entire,src/steamship/agents/examples/telegram_bot.py,no-change,1,0,2059,1287,5.79,0.0,0.001117,0.016988,0.033976
+no-entire-1010-1419-a9c7,no-entire,src/steamship/agents/logging.py,migrated,1,0,1221,943,6.79,0.0,0.000738,0.011872,0.023744
+no-entire-1010-1420-4eb7,,src/steamship/data/package/package.py,migrated,1,0,952,10779,127.62,0.0,0.004794,0.109694,0.219388
