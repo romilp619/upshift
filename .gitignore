@@ -6,4 +6,5 @@ venv/
 targets/
 evidence/runs/*.raw.jsonl
 .entire/cache/
-evidence/logs/*.log
+# run logs are evidence - keep them
+#evidence/logs/*.log
