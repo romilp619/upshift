@@ -47,26 +47,36 @@ def cmd_setup(args):
 
 
 def cmd_baseline(args):
-    """The number to beat: what the official codemod achieves alone."""
+    """The number to beat: what the official codemod achieves on its own.
+
+    Measured the same way the agent is judged - every module imported from a
+    fresh interpreter, plus the offline regression subset - so the comparison
+    in the README is like for like.
+    """
     target = _load_target(args.target)
     target.clone()
     target.reset()
-    before = target.run_tests(timeout=600)
-    files = target.pydantic_files()
-    proc = subprocess.run(
-        ["bump-pydantic", "."], cwd=target.path, capture_output=True, text=True, timeout=1800
-    )
-    after = target.run_tests(timeout=600)
-    print(f"files touching pydantic : {len(files)}")
-    print(f"before : {before.passed}p/{before.failed}f/{before.errors}e  ({before.pass_rate:.1%})")
-    print(f"after  : {after.passed}p/{after.failed}f/{after.errors}e  ({after.pass_rate:.1%})")
-    print(f"bump-pydantic exit={proc.returncode}")
+
+    def measure(label):
+        imports = target.import_check()
+        tests = target.run_green()
+        print(f"{label:28s} modules {imports.ok}/{imports.total}   green tests {tests.passed}")
+        return imports, tests
+
+    before_i, before_t = measure("v2, untouched")
+    exe = target.path / ".venv" / "bin" / "bump-pydantic"
+    subprocess.run([str(exe) if exe.exists() else "bump-pydantic", "src"],
+                   cwd=target.path, capture_output=True, text=True, timeout=1800)
+    changed = subprocess.run(["git", "diff", "--name-only"], cwd=target.path,
+                             capture_output=True, text=True).stdout.split()
+    after_i, after_t = measure(f"v2 + bump-pydantic ({len(changed)} files)")
+
     out = ROOT / "bench" / f"baseline-{target.name}.txt"
     out.write_text(
-        f"target={target.name}\nfiles={len(files)}\n"
-        f"before_pass_rate={before.pass_rate:.4f}\nafter_pass_rate={after.pass_rate:.4f}\n"
-        f"before={before.passed}p/{before.failed}f/{before.errors}e\n"
-        f"after={after.passed}p/{after.failed}f/{after.errors}e\n"
+        f"target={target.name}\ncommit={target.commit}\n"
+        f"untouched_modules={before_i.ok}/{before_i.total}\nuntouched_green_tests={before_t.passed}\n"
+        f"codemod_files_changed={len(changed)}\n"
+        f"codemod_modules={after_i.ok}/{after_i.total}\ncodemod_green_tests={after_t.passed}\n"
     )
     print(f"saved -> {out}")
     target.reset()
