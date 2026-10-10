@@ -105,6 +105,7 @@ class Target:
     commit: str = ""
     test_cmd: list[str] = None
     venv: Path = None
+    branch: str = "upshift/pydantic-v2"   # Trails are per-branch
 
     @property
     def path(self) -> Path:
@@ -120,15 +121,28 @@ class Target:
                 ["git", "clone", "--quiet", self.url, str(self.path)], check=True
             )
         if self.commit:
+            # Check the pin out as a branch, not a bare commit. A detached HEAD
+            # cannot carry a Trail, and Entire reports the branch as "HEAD".
             subprocess.run(
-                ["git", "checkout", "--quiet", self.commit], cwd=self.path, check=True
+                ["git", "checkout", "--quiet", "-B", self.branch, self.commit],
+                cwd=self.path, check=True,
             )
         return self.path
 
-    def reset(self) -> None:
-        """Return the working tree to the pinned commit - used between configs."""
-        subprocess.run(["git", "reset", "--hard", "--quiet"], cwd=self.path, check=True)
-        subprocess.run(["git", "clean", "-qfd"], cwd=self.path, check=True)
+    def reset(self, to: str = "") -> None:
+        """Return the working tree to the pinned commit - used between configs.
+
+        Keeps .entire/ : that is the Graph index and checkpoint state we are
+        trying to measure the effect of, and re-cloning would discard it.
+        """
+        subprocess.run(
+            ["git", "reset", "--hard", "--quiet", to or self.commit or "HEAD"],
+            cwd=self.path, check=True,
+        )
+        subprocess.run(
+            ["git", "clean", "-qfd", "--exclude=.entire", "--exclude=.venv"],
+            cwd=self.path, check=True,
+        )
 
     # --- discovery -------------------------------------------------------
     def next_blocking_file(self) -> str:
