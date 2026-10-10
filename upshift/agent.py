@@ -10,6 +10,7 @@ source cannot tell which file is actually breaking the build; a traceback can.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -34,24 +35,45 @@ MAX_PICKS_PER_FILE = 4   # a file with several errors is revisited, but not fore
 
 
 def _extract_code(text: str) -> str:
-    """Everything between the first opening fence and the LAST closing fence.
+    """The migrated file from a fenced reply.
 
-    A non-greedy fence regex stops at the first closing ``` - and source files
-    can contain fences inside strings. react.py holds a ReACT prompt with code
-    blocks in it, so a correct 113-line answer was cut to 28 lines, the guard
-    (rightly) refused to write it, and the file was quarantined four times for
-    a parsing bug.
+    Two failure modes pull in opposite directions, so neither a greedy nor a
+    non-greedy fence match is right on its own:
+
+      * stopping at the first closing fence truncates a file that contains ```
+        inside a string - react.py holds a prompt with code blocks in it, and a
+        correct 113-line answer was cut to 28;
+      * running to the last closing fence swallows the prose and the extra
+        block when the model appends an illustrative example.
+
+    So build both candidates and keep the first that is valid Python. A
+    truncated file does not parse; a file with prose glued on does not either.
     """
     lines = text.splitlines()
     opens = [i for i, ln in enumerate(lines)
              if ln.strip().startswith("```") and ln.strip() != "```"]
     closes = [i for i, ln in enumerate(lines) if ln.strip() == "```"]
+    candidates = []
     if opens:
-        start = opens[0]
-        end = next((c for c in reversed(closes) if c > start), len(lines))
-        return "\n".join(lines[start + 1:end]).rstrip() + "\n"
+        first = opens[0]
+        after = [c for c in closes if c > first]
+        for stop in ([after[0]] if after else []) + ([after[-1]] if len(after) > 1 else []):
+            candidates.append("\n".join(lines[first + 1:stop]))
+        if not after:
+            candidates.append("\n".join(lines[first + 1:]))
     match = _FENCE.search(text)
-    return (match.group(1) if match else text).rstrip() + "\n"
+    if match:
+        candidates.append(match.group(1))
+    candidates.append(text)
+
+    for candidate in candidates:
+        body = candidate.rstrip() + "\n"
+        try:
+            ast.parse(body)
+        except SyntaxError:
+            continue
+        return body
+    return (candidates[0] if candidates else text).rstrip() + "\n"
 
 
 def _extract_json(text: str) -> dict:
@@ -204,6 +226,15 @@ class MigrationAgent:
                 prompt = self._build_prompt(rel, original, context, hint, errors, affected)
                 llm: LLMResult = self.llm.ask(MIGRATE_SYSTEM, prompt)
                 self._account(result, llm)
+
+                if llm.stop_reason == "max_tokens":
+                    # A reply cut at the cap is a truncated file, not a bad
+                    # edit. Retrying blind wastes the attempt, so say so.
+                    hint = ("Your previous reply hit the output limit and was "
+                            "truncated. Return the complete file and nothing "
+                            "else - no explanation, no second example block.")
+                    result.rollbacks += 1
+                    continue
 
                 redirect = _REDIRECT.search(llm.text)
                 if redirect and redirect.group(1) == rel:
