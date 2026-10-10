@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hmac
 import json
+import os
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -170,6 +172,45 @@ def migration_results() -> dict:
     }
 
 
+class ApiKeyMiddleware:
+    """Minimal bearer/API-key gate.
+
+    cfo.ai will not attach to an unauthenticated server: it probes for OAuth
+    discovery first (/.well-known/oauth-*, /register) and refuses the
+    connection when that 404s. It does offer an "API key header" mode, so a
+    shared secret is enough - and it stops the tunnel being an open endpoint.
+
+    The header name is not fixed by the spec, so accept the ones clients
+    actually send.
+    """
+
+    HEADERS = (b"x-api-key", b"api-key", b"authorization", b"x-mcp-api-key")
+
+    def __init__(self, app, api_key: str):
+        self.app = app
+        self.api_key = api_key
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = dict(scope.get("headers") or [])
+        supplied = ""
+        for name in self.HEADERS:
+            raw = headers.get(name)
+            if raw:
+                supplied = raw.decode().removeprefix("Bearer ").removeprefix("bearer ").strip()
+                break
+        if not hmac.compare_digest(supplied, self.api_key):
+            body = json.dumps({"error": "unauthorized: supply the API key"}).encode()
+            await send({"type": "http.response.start", "status": 401,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+            return
+        await self.app(scope, receive, send)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="upshift.mcp_server")
     parser.add_argument("--port", type=int, default=8787)
@@ -178,6 +219,10 @@ def main() -> None:
     parser.add_argument(
         "--allow-host", action="append", default=[],
         help="extra Host header to accept, e.g. a tunnel domain (repeatable)",
+    )
+    parser.add_argument(
+        "--api-key", default=os.environ.get("UPSHIFT_MCP_API_KEY", ""),
+        help="shared secret clients must send; required for any public tunnel",
     )
     args = parser.parse_args()
     if args.stdio:
@@ -195,13 +240,28 @@ def main() -> None:
             allowed_origins=["*"],
         )
 
-    server.run(
-        transport="streamable-http",
-        host=args.host,
-        port=args.port,
-        stateless_http=True,
-        transport_security=security,
+    if not args.api_key:
+        server.run(
+            transport="streamable-http",
+            host=args.host,
+            port=args.port,
+            stateless_http=True,
+            transport_security=security,
+        )
+        return
+
+    # Authenticated: build the ASGI app so we can wrap it, and serve it ourselves.
+    import uvicorn
+
+    app = ApiKeyMiddleware(
+        server.streamable_http_app(
+            stateless_http=True,
+            transport_security=security,
+            host=args.host,
+        ),
+        args.api_key,
     )
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":
