@@ -36,8 +36,9 @@ MODELS = {
 CODEMOD_BASELINE = {
     "tool": "bump-pydantic",
     "files_changed": 11,
-    "modules_importable": 0,
-    "modules_total": 198,
+    "modules_importable": 31,
+    "modules_importable_before_codemod": 31,
+    "modules_total": 199,
     "green_tests": 0,
 }
 
@@ -201,9 +202,9 @@ def migration_results() -> dict:
             "in_house_engineer": "1600-4000 (2-5 days at ~$100/hr loaded)",
         },
         "note": (
-            "bump-pydantic exits successfully and changes 11 files, but the "
-            "package still does not import - it cannot infer types for "
-            "un-annotated class attributes."
+            "bump-pydantic exits successfully and changes 11 files but gains "
+            "zero importable modules (31/199 before and after) - it cannot "
+            "infer types for un-annotated class attributes."
         ),
     }
 

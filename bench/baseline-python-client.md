@@ -1,83 +1,72 @@
-# Baseline: steamship-core/python-client, pydantic v1 -> v2
+# Baseline: steamship-core/python-client, pydantic v1 → v2
 
-Measured 2026-10-10. Commit `62b3f9659fd43ce4fe62103b6488514259d1956f`.
-Reproduce with `python -m upshift baseline --target python-client`.
+Target pinned at `3bcc5d7` on the fork — upstream `62b3f96` plus `.entire/`
+and nothing else, so the source is byte-identical to upstream.
+Measured 2026-10-10.
 
 ## Metric
 
-Two numbers, both deterministic and full-coverage:
+Two deterministic, full-coverage numbers:
 
-1. **`modules_importable` / 198** - every `steamship.*` submodule, imported in a
-   fresh interpreter. Pydantic v2 rejects v1 model definitions at class-creation
-   time, so this counts real migration progress rather than lines touched.
-2. **`green_tests` / 62** - the 17 test files that pass offline under v1.
-   A regression guard: breaking one of these rejects the patch no matter what
-   the import count says.
+1. **Modules importable / 199** — every `steamship.*` module, enumerated from
+   disk and imported one at a time in a fresh, isolated interpreter. Pydantic v2
+   rejects v1 model definitions at class-creation time, so this measures
+   migration progress directly rather than lines touched.
+2. **Green tests / 62** — the 17 test files that pass offline under v1, used as
+   a regression guard. The other test files need the hosted Steamship API and
+   are excluded as noise, not cherry-picked.
 
 ## Results
 
-| Config | Files changed | Modules importable | Green tests |
+| State | Files changed | Modules importable | Green tests |
 |---|---|---|---|
-| Pydantic v1 (reference) | - | **197 / 198** | **62 / 62** |
-| Pydantic v2, untouched source | 0 | **0 / 198** | **0 / 62** |
-| Pydantic v2, after `bump-pydantic` | 11 / 199 | **0 / 198** | **0 / 62** |
-| Pydantic v2, after Upshift | _TBD_ | _TBD_ | _TBD_ |
+| Pydantic v1 (reference ceiling) | – | **198 / 199** | **62 / 62** |
+| Pydantic v2, untouched source | 0 | **31 / 199** | 0 — suite cannot collect |
+| Pydantic v2, after `bump-pydantic` | 11 | **31 / 199** | 0 — suite cannot collect |
 
-## Why the codemod scores zero
+**The official codemod changes 11 files and gains zero importable modules.**
 
-`bump-pydantic` ran clean (exit 0, "Refactored 11 files") but the package still
-fails on the very first model it loads:
+It handles mechanical renames (`@validator` → `@field_validator`,
+`class Config` → `model_config`) but not what needs inference — chiefly
+un-annotated class attributes on models, which v2 rejects outright:
 
 ```
-src/steamship/data/package/package.py:19, class PackageCreateRequest
-pydantic.errors.PydanticUserError: A non-annotated attribute was detected:
-`fetch_if_exists = False`. All model fields require a type annotation.
+src/steamship/data/package/package.py, class PackageCreateRequest
+PydanticUserError: A non-annotated attribute was detected: `fetch_if_exists = False`.
 ```
 
-`package.py` is not among the 11 files it touched. The codemod handles mechanical
-renames - `@validator` -> `@field_validator`, `class Config` -> `model_config` - but
-not un-annotated class attributes, which need a type inferred from how the field is
-actually used. That inference is the part a coding agent can do and a codemod cannot.
+The right fix is `fetch_if_exists: ClassVar[bool] = False` — it is a class-level
+flag, not a field — and deciding that requires reading how it is used.
 
-Files the codemod did change:
-agents/mixins/transports/slack.py, agents/schema/action.py, agents/schema/functions.py,
-agents/tools/classification/multiple_choice_tool.py, agents/tools/search/search.py,
-base/model.py, data/manifest.py, invocable/invocable.py, invocable/invocable_response.py,
-plugin/capabilities.py, plugin/request.py
+Codemod diff: [`bump-pydantic.patch`](bump-pydantic.patch).
 
-Full diff: `bench/bump-pydantic.patch`.
+## Correction: an earlier version of this file said 0/198
+
+The first probe walked the package with `pkgutil.walk_packages`, which only
+swallows `ImportError`. Any other exception raised in a package `__init__` — a
+`PydanticUserError`, for instance — terminates the walk, so a single broken
+subpackage reported the **whole package** as 0 importable while 31 modules (and,
+after three agent edits, 137) actually loaded.
+
+The probe now enumerates modules from the filesystem and imports each one
+independently. All numbers above were re-measured with it. The codemod still
+gains nothing; the corrected baseline is 31, not 0.
+
+## Entire CLI 0.11.4 — what is and is not available
+
+`entire brain` is not in this CLI, and `entire plugin search brain` finds
+nothing, so the documented Brain feature could not be used. The agent's memory
+is built from what Entire does ship:
+
+| Role | Implementation |
+|---|---|
+| Recall | `entire search "<error> <file>" --json --compact` — hybrid semantic + keyword search over the repo's commits, checkpoints and sessions. It indexes Upshift's own earlier commits as well as the repo's history, e.g. a 2023 commit titled *"Fix pydantic validators"*. |
+| Remember | Each accepted file is committed with an `Upshift-Lesson:` trailer naming the repo-specific convention it learned. Later prompts in the same run see the lessons directly; future runs find them through `entire search`. |
+| Locate | `entire graph search --query … --format agent` — Graph indexed 583 files, 2,118 symbols and 14,138 relations in 6.7 s. |
+| Review | Entire Trails with six default runners, committed to the fork's default branch. |
 
 ## Environment note
 
-The target's own venv (`targets/python-client/.venv`) needs
-`pip install --upgrade typing_extensions` after installing requirements -
-the pinned `aiosignal` fails to import otherwise
+The target's own venv needs `pip install --upgrade typing_extensions` after
+installing requirements, or the pinned `aiosignal` fails to import
 (`TypeVarTuple.__init__() got an unexpected keyword argument 'default'`).
-
-## Entire CLI 0.11.4 — what is actually available
-
-`entire brain` does not exist in this CLI and `entire plugin search brain`
-returns nothing. The documented Brain feature is not shipped here, so the
-repo-memory role is filled by checkpoints plus `entire search`:
-
-| Documented as | Actually used |
-|---|---|
-| `brain brief` / `brain recall` | `entire search "<task>" --compact` — hybrid semantic + keyword over checkpoints, sessions and commits, scoped to the repo. `--compact` is explicitly shaped for agents. |
-| `brain remember` | committing. Entire captures the session as a checkpoint linked to the commit, which `search` then indexes. |
-| `brain setup` | `entire enable` + `entire graph index`. |
-
-This is arguably the better story: checkpoints are Entire's core product and
-need no feature flag, whereas Brain is unavailable.
-
-Already proven useful — searching the untouched target returns a 2023 commit
-from its own history titled *"Fix pydantic validators"*, real prior art for the
-migration.
-
-Custom agents are not captured by hooks (Entire ships hooks for claude-code,
-codex, cursor, copilot-cli and others). `entire session attach` creates a
-checkpoint from a transcript for "any registered agent, including external
-agents enabled via external_agents in .entire/settings.local.json" — that is
-the route for Upshift to write its own checkpoints.
-
-Graph indexed the target: 583 files, 582 parsed, 2118 symbols, 14138 relations
-in 6.7s.

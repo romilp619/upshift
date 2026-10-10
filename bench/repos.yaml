@@ -14,20 +14,23 @@ targets:
     # Run from the target's own venv so its pinned deps stay isolated from ours.
     test_cmd: [".venv/bin/python", "-m", "pytest", "-q", "--no-header", "--tb=no", "-p", "no:cacheprovider"]
 
-    # --- verified baseline (pydantic 1.10.26) ---
+    # --- verified baseline (pydantic 1.10.26) - see bench/baseline-python-client.md ---
     baseline:
-      modules_total: 198
-      modules_importable: 197
+      modules_total: 199
+      modules_importable: 198
       green_test_files: 17
       green_tests: 62
       suite_duration_s: 14
 
     # --- starting point of the migration (pydantic 2.14) ---
-    # The package does not import at all: steamship/__init__.py dies on the first
-    # model (PackageCreateRequest: non-annotated attribute 'fetch_if_exists').
-    # So the agent starts from zero and every importable module is countable progress.
+    # 31/199 modules import; bump-pydantic changes 11 files and leaves it at 31.
+    # The test suite cannot even collect until the shared models are fixed.
     under_v2_before:
-      modules_importable: 0
+      modules_importable: 31
+      green_tests: 0
+    after_bump_pydantic:
+      files_changed: 11
+      modules_importable: 31
       green_tests: 0
 
     # The 17 test files that pass offline under v1. These are the regression guard:

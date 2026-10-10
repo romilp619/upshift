@@ -13,21 +13,22 @@ repository and a target migration (first product: Pydantic v1 → v2) and gets
 back a branch with the migration done, verified, and reviewed.
 
 The wedge is that official codemods do not finish the job. Measured on
-`steamship-core/python-client` (198 modules, 54 files importing pydantic):
+`steamship-core/python-client` (199 modules, 54 files importing pydantic):
 
 | | Modules importable | Green tests |
 |---|---|---|
-| Untouched, under v2 | 0 / 198 | 0 / 62 |
-| After `bump-pydantic` (the official codemod) | **0 / 198** | 0 / 62 |
+| Pydantic v1 (reference) | 198 / 199 | 62 / 62 |
+| Untouched, under v2 | 31 / 199 | 0 / 62 |
+| After `bump-pydantic` (the official codemod) | **31 / 199** | 0 / 62 |
 
-The codemod exits successfully, changes 11 files, and the package still does not
-import. It cannot infer that `fetch_if_exists = False` must become
+The codemod exits successfully, changes 11 files, and gains zero importable
+modules. It cannot infer that `fetch_if_exists = False` must become
 `fetch_if_exists: ClassVar[bool] = False` — that needs reading how the field is
 used. Upshift does that step.
 
 ## Measured unit economics
 
-From 7 files actually migrated, instrumented via neatlogs:
+From the first runs, instrumented via neatlogs (superseded - query the `unit_economics` MCP tool for current median figures):
 
 - **1,203 input tokens and 2,298 output tokens per file**
 
