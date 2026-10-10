@@ -1,0 +1,66 @@
+# Migration targets, verified 2026-10-10.
+#
+# Selection bar: pinned to pydantic v1, 50+ files importing pydantic, a test
+# suite that runs offline in under 60s, and no ML dependency stack.
+# 13 candidates were screened; python-client was the only clear pass.
+
+targets:
+  - name: python-client
+    url: https://github.com/steamship-core/python-client
+    commit: 62b3f9659fd43ce4fe62103b6488514259d1956f
+    migration: pydantic-v1-to-v2
+    # Run from the target's own venv so its pinned deps stay isolated from ours.
+    test_cmd: [".venv/bin/python", "-m", "pytest", "-q", "--no-header", "--tb=no", "-p", "no:cacheprovider"]
+
+    # --- verified baseline (pydantic 1.10.26) ---
+    baseline:
+      modules_total: 198
+      modules_importable: 197
+      green_test_files: 17
+      green_tests: 62
+      suite_duration_s: 14
+
+    # --- starting point of the migration (pydantic 2.14) ---
+    # The package does not import at all: steamship/__init__.py dies on the first
+    # model (PackageCreateRequest: non-annotated attribute 'fetch_if_exists').
+    # So the agent starts from zero and every importable module is countable progress.
+    under_v2_before:
+      modules_importable: 0
+      green_tests: 0
+
+    # The 17 test files that pass offline under v1. These are the regression guard:
+    # a migration that breaks one of these is rejected regardless of import counts.
+    green_tests_subset:
+      - tests/steamship_tests/app/unit/test_config_template_extraction.py
+      - tests/steamship_tests/app/unit/test_mixins.py
+      - tests/steamship_tests/app/unit/test_response.py
+      - tests/steamship_tests/app/unit/test_training_input.py
+      - tests/steamship_tests/base/test_binary_utils.py
+      - tests/steamship_tests/base/test_steamship_error_serializable.py
+      - tests/steamship_tests/plugin/unit/test_blockifier.py
+      - tests/steamship_tests/plugin/unit/test_capabilities.py
+      - tests/steamship_tests/plugin/unit/test_config_block.py
+      - tests/steamship_tests/plugin/unit/test_file_importer.py
+      - tests/steamship_tests/plugin/unit/test_service.py
+      - tests/steamship_tests/plugin/unit/test_tagger.py
+      - tests/steamship_tests/utils/test_camel_model.py
+      - tests/steamship_tests/utils/test_enums.py
+      - tests/steamship_tests/utils/test_static_instance_methods.py
+      - tests/steamship_tests/utils/test_text_chunker.py
+      - tests/steamship_tests/utils/test_zip_archives.py
+
+    # Excluded: need the hosted Steamship API, not a migration signal.
+    exclude_paths:
+      - tests/steamship_tests/app/integration
+      - tests/steamship_tests/plugin/integration
+      - tests/steamship_tests/integrations
+
+# Screened and rejected, kept so we do not re-litigate the choice:
+#   parser-2gis     20 pydantic files but only 1 test file - no verification signal
+#   manifest         4 pydantic files - too little surface
+#   python-a2a       3 pydantic files - too little surface
+#   fastapi-radar    3 pydantic files - too little surface
+#   neuro-san       already on pydantic v2
+#   akcio            1 pydantic file
+#   boltons, chardet, feedparser, markdown, tablib - no pydantic at all
+#   DeepPavlov, VisCPM, XrayGPT, LongVU - ML dep stacks, too heavy to install

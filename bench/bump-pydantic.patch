@@ -1,0 +1,413 @@
+diff --git a/src/steamship/agents/mixins/transports/slack.py b/src/steamship/agents/mixins/transports/slack.py
+index 5b5bb37..85452ef 100644
+--- a/src/steamship/agents/mixins/transports/slack.py
++++ b/src/steamship/agents/mixins/transports/slack.py
+@@ -59,15 +59,15 @@ class SlackThreadingBehavior(Enum):
+ class SlackElement(BaseModel):
+     """An element of a Slack Block."""
+ 
+-    type: Optional[str] = Field(description="Type of block")
++    type: Optional[str] = Field(None, description="Type of block")
+     """Common types are:
+         - rich_text_section
+         - user
+         - text
+     """
+-    elements: Optional[List["SlackElement"]] = Field(description="Element")
+-    user_id: Optional[str] = Field(description="The user id that created the element")
+-    text: Optional[str] = Field(description="The text of the element. Does not contain the user")
++    elements: Optional[List["SlackElement"]] = Field(None, description="Element")
++    user_id: Optional[str] = Field(None, description="The user id that created the element")
++    text: Optional[str] = Field(None, description="The text of the element. Does not contain the user")
+ 
+     def to_blocks(self) -> Optional[List[Block]]:
+         """Return self as a list of Steamship Blocks."""
+@@ -86,12 +86,12 @@ class SlackElement(BaseModel):
+ class SlackBlock(BaseModel):
+     """A Slack Block."""
+ 
+-    type: Optional[str] = Field(description="Type of block")
++    type: Optional[str] = Field(None, description="Type of block")
+     """Common types are:
+         - rich_text
+     """
+-    block_id: Optional[str] = Field(description="ID of the block")
+-    elements: Optional[List[SlackElement]] = Field(description="Element")
++    block_id: Optional[str] = Field(None, description="ID of the block")
++    elements: Optional[List[SlackElement]] = Field(None, description="Element")
+ 
+     def to_blocks(self) -> Optional[List[Block]]:
+         """Return self as a list of Steamship Blocks."""
+@@ -106,7 +106,7 @@ class SlackBlock(BaseModel):
+ class SlackEvent(BaseModel):
+     """A Slack Event as reported to the Bot."""
+ 
+-    type: Optional[str] = Field(description="Type of event")
++    type: Optional[str] = Field(None, description="Type of event")
+     """Common types are:
+         - app_home_opened
+         - app_mention,
+@@ -122,32 +122,32 @@ class SlackEvent(BaseModel):
+ 
+     """
+     user: Optional[str] = Field(
+-        description="The user ID belonging to the user that incited this action. Not included in all events as not all events are controlled by users. This is not the Slack handle."
++        None, description="The user ID belonging to the user that incited this action. Not included in all events as not all events are controlled by users. This is not the Slack handle."
+     )
+-    channel: Optional[str] = Field(description="Channel of the event")
+-    tab: Optional[str] = Field(description="Tab in which the event occurred")
++    channel: Optional[str] = Field(None, description="Channel of the event")
++    tab: Optional[str] = Field(None, description="Tab in which the event occurred")
+     event_ts: Optional[str] = Field(
+-        description="Timestamp of the event. A string, but is a floating point number within that."
++        None, description="Timestamp of the event. A string, but is a floating point number within that."
+     )
+     ts: Optional[str] = Field(
+-        description="Timestamp of the message. A string, but is a floating point number within that."
++        None, description="Timestamp of the message. A string, but is a floating point number within that."
+     )
+     thread_ts: Optional[str] = Field(
+-        description="Timestamp of the thread this message is a part of, if any.  Same format as `ts`."
++        None, description="Timestamp of the thread this message is a part of, if any.  Same format as `ts`."
+     )
+     item: Optional[str] = Field(
+-        description="Data specific to the underlying object type being described."
++        None, description="Data specific to the underlying object type being described."
+     )
+-    client_msg_id: Optional[str] = Field(description="")
++    client_msg_id: Optional[str] = Field(None, description="")
+     text: Optional[str] = Field(
+-        description="The text preview of the sequence of messages. Contains the user ID."
++        None, description="The text preview of the sequence of messages. Contains the user ID."
+     )
+     blocks: Optional[List[SlackBlock]] = Field(
+-        description="The text preview of the sequence of messages"
++        None, description="The text preview of the sequence of messages"
+     )
+-    team: Optional[str] = Field(description="The team from which the message came")
++    team: Optional[str] = Field(None, description="The team from which the message came")
+     bot_id: Optional[str] = Field(
+-        description="The unique identifier for the bot that sent the event."
++        None, description="The unique identifier for the bot that sent the event."
+     )
+ 
+     def is_message(self) -> bool:
+@@ -179,20 +179,20 @@ class SlackRequest(BaseModel):
+     """
+ 
+     token: Optional[str] = Field(
+-        description="The shared-private callback token that authenticates this callback to the application as having come from Slack. Match this against what you were given when the subscription was created. If it does not match, do not process the event and discard it."
++        None, description="The shared-private callback token that authenticates this callback to the application as having come from Slack. Match this against what you were given when the subscription was created. If it does not match, do not process the event and discard it."
+     )
+     team_id: Optional[str] = Field(
+-        description="The unique identifier for the workspace/team where this event occurred."
++        None, description="The unique identifier for the workspace/team where this event occurred."
+     )
+ 
+     api_app_id: Optional[str] = Field(
+-        description="The unique identifier for the application this event is intended for."
++        None, description="The unique identifier for the application this event is intended for."
+     )
+-    event: Optional[SlackEvent] = Field(description="Slack event")
+-    type: Optional[str] = Field(description="The type of inbound request")  # event_callback
+-    event_id: Optional[str] = Field(description="The event ID")
+-    event_time: Optional[int] = Field(description="The event time")
+-    event_context: Optional[str] = Field(description="The event context key")
++    event: Optional[SlackEvent] = Field(None, description="Slack event")
++    type: Optional[str] = Field(None, description="The type of inbound request")  # event_callback
++    event_id: Optional[str] = Field(None, description="The event ID")
++    event_time: Optional[int] = Field(None, description="The event time")
++    event_context: Optional[str] = Field(None, description="The event context key")
+ 
+ 
+ class SlackTransportConfig(Config):
+diff --git a/src/steamship/agents/schema/action.py b/src/steamship/agents/schema/action.py
+index e57ec6e..945e5d2 100644
+--- a/src/steamship/agents/schema/action.py
++++ b/src/steamship/agents/schema/action.py
+@@ -18,7 +18,7 @@ class Action(BaseModel):
+     input: List[Block]
+     """Data provided directly to the Tool (full context is passed in run)."""
+ 
+-    output: Optional[List[Block]]
++    output: Optional[List[Block]] = None
+     """Any direct output produced by the Tool."""
+ 
+     is_final: bool = Field(default=False)
+diff --git a/src/steamship/agents/schema/functions.py b/src/steamship/agents/schema/functions.py
+index fd0a5e3..c873579 100644
+--- a/src/steamship/agents/schema/functions.py
++++ b/src/steamship/agents/schema/functions.py
+@@ -2,6 +2,7 @@ from enum import Enum
+ from typing import List, Mapping, Optional
+ 
+ from pydantic.main import BaseModel
++from pydantic import ConfigDict
+ 
+ 
+ class JSONType(str, Enum):
+@@ -16,10 +17,7 @@ class JSONType(str, Enum):
+ 
+ class FunctionProperty(BaseModel):
+     """Schema for an individual parameter used in an OpenAI function."""
+-
+-    class Config:
+-        use_enum_values = True
+-        """This tells Pydantic to serialize the Enum values as strings, which is VERY IMPORTANT for OpenAI"""
++    model_config = ConfigDict(use_enum_values=True)
+ 
+     type: JSONType = JSONType.object
+     """Type of the property. Defaults to object."""
+@@ -30,10 +28,7 @@ class FunctionProperty(BaseModel):
+ 
+ class FunctionParameters(BaseModel):
+     """Schema for the description of how to invoke an OpenAI function."""
+-
+-    class Config:
+-        use_enum_values = True
+-        """This tells Pydantic to serialize the Enum values as strings, which is VERY IMPORTANT for OpenAI"""
++    model_config = ConfigDict(use_enum_values=True)
+ 
+     type: JSONType = JSONType.object
+     """Type of this object. DO NOT MODIFY."""
+diff --git a/src/steamship/agents/tools/classification/multiple_choice_tool.py b/src/steamship/agents/tools/classification/multiple_choice_tool.py
+index 60a9c0d..6ae4463 100644
+--- a/src/steamship/agents/tools/classification/multiple_choice_tool.py
++++ b/src/steamship/agents/tools/classification/multiple_choice_tool.py
+@@ -23,7 +23,7 @@ Your answer. Respond with ONLY the number of the correct option:"""
+ 
+ class MultipleChoiceOption(BaseModel):
+     name: str = Field(description="The name of the answer")
+-    description: Optional[str] = Field(description="Short description of the answer")
++    description: Optional[str] = Field(None, description="Short description of the answer")
+ 
+     question: Optional["MultipleChoiceQuestion"] = Field(
+         None, description="A Question to traverse."
+diff --git a/src/steamship/agents/tools/search/search.py b/src/steamship/agents/tools/search/search.py
+index a8102e6..f3a9518 100644
+--- a/src/steamship/agents/tools/search/search.py
++++ b/src/steamship/agents/tools/search/search.py
+@@ -2,7 +2,7 @@
+ import logging
+ from typing import Any, List, Optional, Union
+ 
+-from pydantic import Field
++from pydantic import ConfigDict, Field
+ 
+ from steamship import Block, File, PluginInstance, Steamship, SteamshipError, Task
+ from steamship.agents.llms import OpenAI
+@@ -26,9 +26,7 @@ class SearchTool(Tool):
+ 
+     cache: bool = False
+     cache_store: Optional[KeyValueStore] = Field(None, exclude=True)
+-
+-    class Config:
+-        arbitrary_types_allowed = True
++    model_config = ConfigDict(arbitrary_types_allowed=True)
+ 
+     def run(self, tool_input: List[Block], context: AgentContext) -> Union[List[Block], Task[Any]]:
+         """Execute a search using the Steamship plugin."""
+diff --git a/src/steamship/base/model.py b/src/steamship/base/model.py
+index bdb8b68..6ef0fc5 100644
+--- a/src/steamship/base/model.py
++++ b/src/steamship/base/model.py
+@@ -2,8 +2,7 @@ import re
+ from typing import TypeVar
+ 
+ import inflection
+-from pydantic import BaseModel
+-from pydantic.generics import GenericModel
++from pydantic import ConfigDict, BaseModel
+ 
+ T = TypeVar("T")  # Declare type variable
+ 
+@@ -17,13 +16,8 @@ class CamelModel(BaseModel):
+     def __init__(self, **kwargs):
+         kwargs = {k: v for k, v in kwargs.items() if v is not None}
+         super().__init__(**kwargs)
++    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, use_enum_values=True)
+ 
+-    class Config:
+-        alias_generator = to_camel
+-        allow_population_by_field_name = True
+-        # Populate enum values with their value, rather than the raw enum. Important to serialise model.dict()
+-        use_enum_values = True
+ 
+-
+-class GenericCamelModel(CamelModel, GenericModel):
++class GenericCamelModel(CamelModel, BaseModel):
+     pass
+diff --git a/src/steamship/data/manifest.py b/src/steamship/data/manifest.py
+index 7e9128b..9c21042 100644
+--- a/src/steamship/data/manifest.py
++++ b/src/steamship/data/manifest.py
+@@ -39,19 +39,19 @@ class DeployableType(str, Enum):
+ 
+ 
+ class SteamshipRegistry(BaseModel):
+-    tagline: Optional[str]  # noqa: N815
+-    tagline2: Optional[str]  # noqa: N815
+-    usefulFor: Optional[str]  # noqa: N815
+-    videoUrl: Optional[str]  # noqa: N815
+-    githubUrl: Optional[str]  # noqa: N815
+-    demoUrl: Optional[str]  # noqa: N815
+-    blogUrl: Optional[str]  # noqa: N815
+-    jupyterUrl: Optional[str]  # noqa: N815
+-    authorGithub: Optional[str]  # noqa: N815
+-    authorName: Optional[str]  # noqa: N815
+-    authorEmail: Optional[str]  # noqa: N815
+-    authorTwitter: Optional[str]  # noqa: N815
+-    authorUrl: Optional[str]  # noqa: N815
++    tagline: Optional[str] = None  # noqa: N815
++    tagline2: Optional[str] = None  # noqa: N815
++    usefulFor: Optional[str] = None  # noqa: N815
++    videoUrl: Optional[str] = None  # noqa: N815
++    githubUrl: Optional[str] = None  # noqa: N815
++    demoUrl: Optional[str] = None  # noqa: N815
++    blogUrl: Optional[str] = None  # noqa: N815
++    jupyterUrl: Optional[str] = None  # noqa: N815
++    authorGithub: Optional[str] = None  # noqa: N815
++    authorName: Optional[str] = None  # noqa: N815
++    authorEmail: Optional[str] = None  # noqa: N815
++    authorTwitter: Optional[str] = None  # noqa: N815
++    authorUrl: Optional[str] = None  # noqa: N815
+     tags: List[str]
+ 
+ 
+@@ -66,13 +66,13 @@ class Manifest(BaseModel):
+     type: DeployableType
+     handle: str
+     version: str
+-    description: Optional[str]
+-    author: Optional[str]
++    description: Optional[str] = None
++    author: Optional[str] = None
+     entrypoint: str = "Unused"
+     public: bool
+-    plugin: Optional[PluginConfig]
++    plugin: Optional[PluginConfig] = None
+     build_config: Dict[str, List[str]] = {"ignore": []}
+-    configTemplate: Optional[Dict[str, ConfigParameter]]  # noqa: N815
++    configTemplate: Optional[Dict[str, ConfigParameter]] = None  # noqa: N815
+     steamshipRegistry: SteamshipRegistry  # noqa: N815
+ 
+     @staticmethod
+diff --git a/src/steamship/invocable/invocable.py b/src/steamship/invocable/invocable.py
+index 83fcdb3..f6f1b3e 100644
+--- a/src/steamship/invocable/invocable.py
++++ b/src/steamship/invocable/invocable.py
+@@ -87,8 +87,8 @@ def post(path: str, **kwargs):
+ 
+ 
+ class RouteMethod(BaseModel):
+-    attribute: Any
+-    verb: Optional[Verb]
++    attribute: Any = None
++    verb: Optional[Verb] = None
+     path: str
+     config: Dict[str, Any]
+ 
+diff --git a/src/steamship/invocable/invocable_response.py b/src/steamship/invocable/invocable_response.py
+index a2e1c19..62440fa 100644
+--- a/src/steamship/invocable/invocable_response.py
++++ b/src/steamship/invocable/invocable_response.py
+@@ -6,7 +6,6 @@ import logging
+ from typing import Any, Dict, Generic, Optional, TypeVar, Union
+ 
+ from pydantic import BaseModel
+-from pydantic.generics import GenericModel
+ 
+ from steamship import File
+ from steamship.base import MimeTypes, SteamshipError, Task, TaskState
+@@ -29,7 +28,7 @@ class Http(CamelModel):
+ T = TypeVar("T")
+ 
+ 
+-class InvocableResponse(GenericModel, Generic[T]):
++class InvocableResponse(BaseModel, Generic[T]):
+     """Mirrors the Response object in the Steamship server."""
+ 
+     data: T = None  # Data for successful or synchronous requests.
+diff --git a/src/steamship/plugin/capabilities.py b/src/steamship/plugin/capabilities.py
+index 259aaa6..2488e8d 100644
+--- a/src/steamship/plugin/capabilities.py
++++ b/src/steamship/plugin/capabilities.py
+@@ -20,7 +20,7 @@ import logging
+ from enum import Enum, Flag, auto
+ from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Type, TypeVar, Union
+ 
+-from pydantic import BaseModel, Extra, Field
++from pydantic import ConfigDict, BaseModel, Field
+ from pydantic.dataclasses import ClassVar
+ 
+ from steamship import Block, MimeTypes, SteamshipError, Tag
+@@ -83,9 +83,7 @@ class SupportLevel(Flag):
+ 
+ class Capability(BaseModel):
+     """Base class for all capabilities."""
+-
+-    class Config:
+-        extra = Extra.allow
++    model_config = ConfigDict()
+ 
+     NAME: ClassVar[str]
+     """Name of the capability.
+@@ -145,17 +143,14 @@ class Capability(BaseModel):
+ 
+         Responses indicate the level at which they served the request-level.
+         """
+-
+-        class Config:
+-            extra = Extra.allow
++        model_config = ConfigDict(extra="allow", extra="allow")
+ 
+         name: str = Field(init_var=False, default=None)
+         fulfilled_at: SupportLevel
+ 
+ 
+ class CapabilityImpl(Capability):
+-    class Config:
+-        extra = Extra.forbid
++    model_config = ConfigDict(extra="forbid")
+ 
+     def __init__(self, **kwargs):
+         super().__init__(**kwargs)
+diff --git a/src/steamship/plugin/request.py b/src/steamship/plugin/request.py
+index 5ba3aca..f530e8d 100644
+--- a/src/steamship/plugin/request.py
++++ b/src/steamship/plugin/request.py
+@@ -2,8 +2,6 @@ from __future__ import annotations
+ 
+ from typing import Generic, Optional, TypeVar
+ 
+-from pydantic.generics import GenericModel
+-
+ # Note!
+ # =====
+ #
+@@ -12,6 +10,7 @@ from pydantic.generics import GenericModel
+ #
+ from steamship.base import Task
+ from steamship.base.model import CamelModel, to_camel
++from pydantic import BaseModel, ConfigDict
+ 
+ T = TypeVar("T")
+ U = TypeVar("U")
+@@ -28,7 +27,7 @@ class PluginRequestContext(CamelModel):
+     plugin_instance_handle: str = None
+ 
+ 
+-class PluginRequest(GenericModel, Generic[T]):
++class PluginRequest(BaseModel, Generic[T]):
+     # The primary payload of the request. E.g. RawDataPluginInput, BlockAndTagPluginInput
+     data: Optional[T] = None
+ 
+@@ -40,7 +39,4 @@ class PluginRequest(GenericModel, Generic[T]):
+ 
+     # Whether this plugin request is a status check against ongoing work. If True, status must be not None
+     is_status_check: bool = False
+-
+-    class Config:
+-        alias_generator = to_camel
+-        allow_population_by_field_name = True
++    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
