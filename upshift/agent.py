@@ -85,6 +85,7 @@ class MigrationAgent:
         self.lessons: list[str] = []
         self.picks: dict[str, int] = {}
         self.redirects: list[str] = []
+        self.attempted: dict[str, tuple] = {}   # file -> error signature last tried
         self.best_imports = 0
         self.best_tests = 0
 
@@ -375,6 +376,15 @@ class MigrationAgent:
                     print("no test failure left that can be moved", flush=True)
                     break
                 rel, mine = pick
+                # A file that quarantines on an unchanged error will quarantine
+                # again: same file, same failures, same prompt. Re-picking it
+                # cost ~45 minutes on plugin/capabilities.py in one run. Retry
+                # only while the error it is blamed for keeps changing.
+                signature = tuple(sorted(f["err"][:120] for f in mine))
+                if self.attempted.get(rel) == signature:
+                    self.picks[rel] = MAX_PICKS_PER_FILE
+                    continue
+                self.attempted[rel] = signature
                 index += 1
                 self.picks[rel] = self.picks.get(rel, 0) + 1
                 errors = "\n".join(f"{f['module']}: {f['err']}" for f in mine[:4])
