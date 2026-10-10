@@ -61,6 +61,9 @@ class MigrationAgent:
         self.baseline_imports = 0
         self.baseline_tests = 0
         self.blocking_before = ""
+        self.extra_files = 0      # blockers the regex heuristic missed
+        self.current_error = ""
+        self.stuck: set[str] = set()   # blockers we could not move; never re-pick
 
     # --- instrumented tools ---------------------------------------------
     @obs.span(kind="RETRIEVER", tool_name="entire_graph_search")
@@ -104,14 +107,17 @@ class MigrationAgent:
 
         with obs.trace(f"migrate:{rel}", kind="AGENT", file=str(rel), index=index):
             # Which file is blocking the import chain before we touch anything.
-            self.blocking_before = self.target.import_check().blocking_file(self.target.path)
+            probe = self.target.import_check()
+            self.blocking_before = probe.blocking_file(self.target.path)
+            self.current_error = self._error_excerpt(probe)
             context, result.brain_facts_recalled = self._context_for(rel)
             savepoint = self.git.save()
             hint = ""
 
             for attempt in range(1, CONFIG.max_attempts_per_file + 1):
                 result.attempts = attempt
-                prompt = self._build_prompt(rel, original, context, hint)
+                prompt = self._build_prompt(rel, original, context, hint,
+                                            self.current_error)
                 llm: LLMResult = self.llm.ask(MIGRATE_SYSTEM, prompt)
                 self._account(result, llm)
 
@@ -206,8 +212,25 @@ class MigrationAgent:
         return result
 
     # --- helpers ----------------------------------------------------------
-    def _build_prompt(self, rel: Path, original: str, context: str, hint: str) -> str:
+    @staticmethod
+    def _error_excerpt(probe, limit: int = 1800) -> str:
+        """Tail of the traceback - the exception and the frames nearest it."""
+        text = (probe.traceback or probe.first_error or "").strip()
+        return text[-limit:] if len(text) > limit else text
+
+    def _build_prompt(self, rel: Path, original: str, context: str, hint: str,
+                      error: str = "") -> str:
         chunks = [f"# File to migrate: {rel}"]
+        if error:
+            # Without this the model sees a plausible-looking file, finds
+            # nothing obviously wrong and hands it back unchanged. The
+            # traceback is the most useful context available and belongs in
+            # the FIRST attempt, not only after one has already failed.
+            chunks.append(
+                "## The interpreter is failing HERE right now\n```\n"
+                + error.strip()
+                + "\n```\nFix this error."
+            )
         if context:
             chunks.append(context)
         if hint:
@@ -251,17 +274,54 @@ class MigrationAgent:
         result.cost_usd = round(result.cost_usd + llm.cost_usd, 6)
 
     # --- run --------------------------------------------------------------
+    def _next_file(self, pending: list[Path]) -> Path:
+        """Always work on whatever is currently breaking the import chain.
+
+        Order matters more than it looks. The gate accepts a patch only if it
+        moves the migration forward, but a correctly migrated file that is NOT
+        the current blocker shows no progress at all - the package still fails
+        on someone else's error - so it gets rolled back and quarantined.
+        Following the traceback keeps the file under work and the file being
+        measured the same one.
+        """
+        blocker = self.target.import_check().blocking_file(self.target.path)
+        if blocker:
+            for rel in pending:
+                if str(rel) == blocker:
+                    return rel
+            # The blocker is not in the worklist. pydantic_files() is a regex
+            # heuristic and misses files that inherit a model or re-export one;
+            # the traceback is ground truth, so trust it and widen the list.
+            path = self.target.path / blocker
+            if path.exists() and blocker not in self.stuck:
+                self.extra_files += 1
+                return Path(blocker)
+        return pending[0]
+
     def run(self, files: list[Path], commit_each: bool = True) -> RunMetrics:
+        pending = list(files)
+        total = len(pending)
         with obs.trace(f"upshift-run:{self.config_name}", kind="WORKFLOW",
                        config=self.config_name, target=self.target.name):
-            for index, rel in enumerate(files, start=1):
+            index = 0
+            while pending:
+                index += 1
+                rel = self._next_file(pending)
+                if rel in pending:
+                    pending.remove(rel)
+                else:
+                    total += 1          # a blocker the heuristic had missed
                 result = self.migrate_file(rel, index)
-                status = "ok " if result.outcome == "migrated" else "QUAR"
+                status = {"migrated": "ok  ", "no-change": "skip",
+                          "quarantined": "QUAR"}.get(result.outcome, "?   ")
                 print(
-                    f"[{index:>3}/{len(files)}] {status} {rel} "
+                    f"[{index:>3}/{total}] {status} {rel} "
                     f"steps={result.steps} rollbacks={result.rollbacks} "
                     f"${result.cost_usd:.4f} {result.duration_s}s"
                 )
+                if result.outcome != "migrated":
+                    # Otherwise an unmovable blocker is re-selected forever.
+                    self.stuck.add(str(rel))
                 if result.outcome == "migrated" and commit_each:
                     self.git.commit(f"upshift: migrate {rel} to pydantic v2")
                 if index % CONFIG.full_suite_every == 0:
