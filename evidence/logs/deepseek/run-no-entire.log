@@ -1,0 +1,33 @@
+run no-entire-1010-2358-863b: config=no-entire
+start: 31/199 modules importable
+codemod: 11 files changed -> 31/199
+[  1] import ok   src/steamship/data/package/package.py                    imports=116/199 tests=10 att=1 rb=0 69.1s 
+[  2] import ok   src/steamship/agents/schema/action.py                    imports=135/199 tests=12 att=1 rb=0 7.32s 
+[  3] import ok   src/steamship/base/model.py                              imports=165/199 tests=23 att=2 rb=1 434.23s 
+[  4] import ok   src/steamship/agents/functional/functions_based.py       imports=169/199 tests=23 att=1 rb=0 13.18s 
+[  5] import ok   src/steamship/agents/tools/question_answering/prompt_database_question_answerer.py imports=176/199 tests=23 att=1 rb=0 19.59s 
+[  6] import ok   src/steamship/agents/tools/image_generation/dalle.py     imports=177/199 tests=23 att=1 rb=0 6.0s 
+[  7] import ok   src/steamship/agents/tools/image_generation/google_image_search.py imports=178/199 tests=23 att=1 rb=0 6.7s 
+[  8] import ok   src/steamship/agents/tools/image_generation/stable_diffusion.py imports=183/199 tests=23 att=1 rb=0 6.87s 
+[  9] import QUAR src/steamship/agents/llms/steamship_llm.py               imports=183/199 tests=23 att=3 rb=3 151.23s 
+[ 10] import QUAR src/steamship/agents/llms/steamship_llm.py               imports=183/199 tests=23 att=3 rb=3 80.92s 
+[ 11] import ->   src/steamship/agents/llms/steamship_llm.py               imports=183/199 tests=23 att=3 rb=2 68.89s root cause is in src/steamship/plugin/capabilities.py
+[ 12] import ok   src/steamship/plugin/capabilities.py                     imports=185/199 tests=37 att=1 rb=0 194.55s 
+[ 13] import ok   src/steamship/agents/tools/classification/sentiment_analysis_tool.py imports=186/199 tests=37 att=1 rb=0 53.29s 
+[ 14] import ok   src/steamship/agents/react/react.py                      imports=189/199 tests=37 att=1 rb=0 14.27s 
+[ 15] import ok   src/steamship/agents/tools/classification/zero_shot_classifier_tool.py imports=191/199 tests=37 att=1 rb=0 11.34s 
+[ 16] import ok   src/steamship/agents/tools/conversation_starters/knock_knock_tool.py imports=193/199 tests=37 att=1 rb=0 26.64s 
+[ 17] import ok   src/steamship/agents/tools/video_generation/did_video_generator_tool.py imports=195/199 tests=37 att=1 rb=0 12.51s 
+[ 18] import ok   src/steamship/agents/basic_chat.py                       imports=196/199 tests=37 att=1 rb=0 12.03s 
+[ 19] import ok   src/steamship/agents/functions_based.py                  imports=197/199 tests=37 att=1 rb=0 15.67s 
+[ 20] import ok   src/steamship/agents/tools/classification/multiple_choice_tool.py imports=198/199 tests=37 att=1 rb=0 48.04s 
+[ 21] import ok   src/steamship/agents/tools/text_generation/custom_llm_prompt.py imports=199/199 tests=37 att=1 rb=0 64.51s 
+all modules import
+[ 22] tests  ok   src/steamship/data/block.py                              imports=199/199 tests=43 att=1 rb=0 146.68s 
+[ 23] tests  ok   src/steamship/invocable/config.py                        imports=199/199 tests=48 att=1 rb=0 189.2s 
+[ 24] tests  ok   src/steamship/base/model.py                              imports=199/199 tests=59 att=1 rb=0 218.24s 
+[ 25] tests  QUAR src/steamship/plugin/capabilities.py                     imports=199/199 tests=59 att=3 rb=3 1097.4s 
+no test failure left that can be moved
+final: 199/199 modules, 59 green tests
+
+done -> /home/romil/neathack/evidence/runs/no-entire-1010-2358-863b.jsonl
