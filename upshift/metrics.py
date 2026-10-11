@@ -9,6 +9,31 @@ from pathlib import Path
 from .config import ROOT
 
 
+def migration_status(modules_importable: int, modules_total: int,
+                     green_tests: int, green_total: int, failing_tests: int = 0) -> str:
+    """"complete" only when every module imports and no regression test fails."""
+    if not modules_total or modules_importable < modules_total:
+        return "incomplete"
+    if failing_tests or not green_total or green_tests < green_total:
+        return "incomplete"
+    return "complete"
+
+
+def harness_version() -> str:
+    """The Upshift commit that produced a run, marked dirty if uncommitted.
+
+    Two of the first three successful runs used a fix that was not committed
+    until after they finished, so their results could not be tied to code.
+    """
+    import subprocess
+    root = Path(__file__).resolve().parent.parent
+    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root,
+                         capture_output=True, text=True).stdout.strip() or "unknown"
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", "upshift"], cwd=root,
+                           capture_output=True, text=True).stdout.strip()
+    return f"{sha}-dirty" if dirty else sha
+
+
 @dataclass
 class FileResult:
     index: int                  # order within the run (drives the learning curve)
@@ -48,7 +73,8 @@ class RunMetrics:
 
     def finish(self, suite_pass_rate: float, note: str = "",
                modules_importable: int = 0, modules_total: int = 0,
-               green_tests: int = 0, baseline_importable: int = 0) -> None:
+               green_tests: int = 0, baseline_importable: int = 0,
+               green_total: int = 0, failing_tests: int = 0) -> None:
         summary = {
             "type": "summary",
             "run_id": self.run_id,
@@ -64,6 +90,14 @@ class RunMetrics:
             "modules_total": modules_total,
             "baseline_importable": baseline_importable,
             "green_tests": green_tests,
+            "green_total": green_total,
+            "failing_tests": failing_tests,
+            # A summary means the process finished, not that the migration did.
+            # Only a run that imports every module and fails no regression test
+            # is a successful migration.
+            "status": migration_status(modules_importable, modules_total,
+                                       green_tests, green_total, failing_tests),
+            "harness": harness_version(),
             "total_cost_usd": round(sum(f.cost_usd for f in self.files), 4),
             "total_rollbacks": sum(f.rollbacks for f in self.files),
             "duration_s": round(time.time() - self.started_at, 1),

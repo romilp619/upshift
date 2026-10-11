@@ -9,6 +9,11 @@ from .config import ROOT
 RUNS = ROOT / "evidence" / "runs"
 
 
+def _expected_green(target: str) -> int:
+    from .mcp_server import _expected_green as expected
+    return expected(target)
+
+
 def load(run_id: str) -> tuple[list[dict], dict]:
     """Summary line plus file records.
 
@@ -21,11 +26,20 @@ def load(run_id: str) -> tuple[list[dict], dict]:
     for line in path.read_text().splitlines():
         record = json.loads(line)
         (files.append(record) if record.get("type") == "file" else summary.update(record))
+    if summary and "status" not in summary:
+        # Older summaries predate the status field; classify from their counts.
+        from .metrics import migration_status
+        total = summary.get("green_total") or _expected_green(summary.get("target_repo", ""))
+        summary["status"] = migration_status(
+            summary.get("modules_importable", 0), summary.get("modules_total", 0),
+            summary.get("green_tests", 0), total, summary.get("failing_tests", 0))
     if not summary and files:
         done = [f for f in files if f["outcome"] == "migrated"]
         summary = {
             "config_name": run_id.rsplit("-", 2)[0],
-            "incomplete": True,
+            # No summary: the process never finished. That is "interrupted",
+            # distinct from "incomplete", which finished with failures.
+            "status": "interrupted",
             "files_total": len({f["path"] for f in files}),
             "files_migrated": len({f["path"] for f in done}),
             "modules_importable": max((f.get("modules_importable", 0) for f in files), default=0),
@@ -66,19 +80,19 @@ def learning_curve(files: list[dict], bucket: int = 10) -> list[dict]:
 
 def ablation(run_ids: list[str]) -> str:
     lines = [
-        "| Config | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |",
-        "|---|---|---|---|---|---|---|",
-        "| v2, untouched | 31 / 199 | 0 | - | - | - | - |",
-        "| `bump-pydantic` (codemod alone) | **31 / 199** | 0 | 11 changed | - | $0 | - |",
+        "| Config | Outcome | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |",
+        "|---|---|---|---|---|---|---|---|",
+        "| v2, untouched | - | 31 / 199 | 0 | - | - | - | - |",
+        "| `bump-pydantic` (codemod alone) | incomplete | **31 / 199** | 0 | 11 changed | - | $0 | - |",
     ]
     for run_id in run_ids:
         files, summary = load(run_id)
         stats = _per_file(files)
         label = summary.get("config_name", run_id)
-        if summary.get("incomplete"):
-            label += " _(incomplete)_"
+        outcome = summary.get("status", "?")
         lines.append(
             f"| {label} "
+            f"| {'**complete**' if outcome == 'complete' else outcome} "
             f"| **{summary.get('modules_importable', 0)} / "
             f"{summary.get('modules_total', 0) or 199}** "
             f"| {summary.get('green_tests', 0)} "
@@ -87,6 +101,15 @@ def ablation(run_ids: list[str]) -> str:
             f"| ${stats['cost']:.4f} "
             f"| {summary.get('total_rollbacks', 0)} |"
         )
+    statuses = [load(r)[1].get("status") for r in run_ids]
+    finished = [x for x in statuses if x != "interrupted"]
+    if finished:
+        ok = finished.count("complete")
+        lines.append("")
+        lines.append(f"Outcome across these runs: **{ok} of {len(finished)} complete** "
+                     f"({ok / len(finished):.0%}). A run is complete only when every module "
+                     f"imports and no regression test fails; finishing is not the same as "
+                     f"migrating.")
     return "\n".join(lines)
 
 

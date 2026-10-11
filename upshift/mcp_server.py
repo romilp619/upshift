@@ -63,21 +63,60 @@ def _load() -> tuple[list[dict], list[dict]]:
     return files, summaries
 
 
-def _completed_runs() -> list[dict]:
-    """Per-run token totals for runs that finished (wrote a summary)."""
+def _expected_green(target: str) -> int:
+    """Regression-test denominator for a target, from bench/repos.yaml.
+    Older run summaries did not record it."""
+    try:
+        import yaml
+        spec = yaml.safe_load((ROOT / "bench" / "repos.yaml").read_text())
+        for t in spec.get("targets", []):
+            if t.get("name") == target:
+                return int(t.get("baseline", {}).get("green_tests", 0))
+    except Exception:
+        pass
+    return 0
+
+
+def _finished_runs() -> list[dict]:
+    """Every run that wrote a summary, classified by outcome.
+
+    A summary only means the process finished. Counting every finished run as
+    a migration put eight incomplete runs into the cost sample beside three
+    successful ones. Status comes from the summary when it records one; older
+    summaries are classified from their counts against the target's
+    regression-test denominator.
+    """
+    from .metrics import migration_status
     runs = []
     for path in sorted(glob.glob(str(RUNS / "*.jsonl"))):
         rows = [json.loads(line) for line in open(path)]
-        if not any(r.get("type") == "summary" for r in rows):
-            continue
+        summary = next((r for r in rows if r.get("type") == "summary"), None)
+        if summary is None:
+            continue                      # interrupted: never finished
         files = [r for r in rows if r.get("type") == "file"]
+        green_total = summary.get("green_total") or _expected_green(summary.get("target_repo", ""))
+        status = summary.get("status") or migration_status(
+            summary.get("modules_importable", 0), summary.get("modules_total", 0),
+            summary.get("green_tests", 0), green_total, summary.get("failing_tests", 0))
         runs.append({
             "run_id": Path(path).stem,
+            "config": summary.get("config_name"),
+            "status": status,
+            "modules": f"{summary.get('modules_importable')}/{summary.get('modules_total')}",
+            "green_tests": f"{summary.get('green_tests')}/{green_total or '?'}",
+            "harness": summary.get("harness", "not recorded"),
             "steps": len(files),
             "input_tokens": sum(r.get("input_tokens", 0) for r in files),
             "output_tokens": sum(r.get("output_tokens", 0) for r in files),
         })
     return runs
+
+
+def _spread(values: list[float]) -> dict | None:
+    if not values:
+        return None
+    return {"median": round(_median(values), 4), "min": round(min(values), 4),
+            "max": round(max(values), 4), "n": len(values)}
 
 
 def _median(values: list[float]) -> float:
@@ -130,18 +169,22 @@ def unit_economics() -> dict:
                                    "max": max(outs)},
         "cost_per_file_usd_median": {m: _cost(med_in, med_out, m) for m in MODELS},
         "cost_per_file_usd_mean": {m: _cost(mean_in, mean_out, m) for m in MODELS},
-        # A completed run IS one repository migrated, so per-repo cost is
-        # measured directly rather than per-file cost times a guessed file
-        # count. The guess (198, then 54) overstated it by roughly 60%.
-        "cost_per_repo_usd_measured": {
-            m: round(_median([_cost(r["input_tokens"], r["output_tokens"], m)
-                              for r in _completed_runs()]), 4) if _completed_runs() else None
+        # Per-repository cost from runs that actually migrated the repository.
+        # An incomplete run stopped with tests still failing; its cost is real
+        # spend but not the price of a migration.
+        "cost_per_successful_migration_usd": {
+            m: _spread([_cost(r["input_tokens"], r["output_tokens"], m)
+                        for r in _finished_runs() if r["status"] == "complete"])
             for m in MODELS
         },
-        "completed_runs_measured": len(_completed_runs()),
+        "migrations": {
+            "successful": sum(r["status"] == "complete" for r in _finished_runs()),
+            "incomplete": sum(r["status"] != "complete" for r in _finished_runs()),
+        },
         "caveats": [
-            f"Per-file figures cover {n} distinct files; per-repo figures come from "
-            f"{len(_completed_runs())} complete runs and need no file-count assumption.",
+            f"Per-file figures cover {n} distinct files. Per-repository figures come "
+            f"only from successful migrations; see cost_projection for the success "
+            f"rate and the cost of incomplete runs.",
             "Distribution is skewed: one file used 10779 output tokens, the rest under 1400. "
             "Prefer the median for unit cost and the mean only for worst-case budgeting.",
             "All recorded runs used the free model, so these are token counts priced at "
@@ -155,23 +198,13 @@ def unit_economics() -> dict:
 
 @server.tool(description="Every migration run recorded, with outcome counts and cost.")
 def list_runs() -> dict:
-    _, summaries = _load()
+    runs = _finished_runs()
     return {
-        "runs": [
-            {
-                "run_id": s.get("run_id"),
-                "config": s.get("config_name"),
-                "target": s.get("target_repo"),
-                "files_total": s.get("files_total"),
-                "files_migrated": s.get("files_migrated"),
-                "files_quarantined": s.get("files_quarantined"),
-                "modules_importable": s.get("modules_importable"),
-                "rollbacks": s.get("total_rollbacks"),
-                "duration_s": s.get("duration_s"),
-            }
-            for s in summaries
-        ],
-        "count": len(summaries),
+        "runs": [{k: r[k] for k in ("run_id", "config", "status", "modules",
+                                    "green_tests", "harness", "steps")} for r in runs],
+        "count": len(runs),
+        "successful": sum(r["status"] == "complete" for r in runs),
+        "incomplete": sum(r["status"] != "complete" for r in runs),
     }
 
 
@@ -194,38 +227,60 @@ def cost_projection(
     repos_per_month: int = 100,
     model: str = "claude-sonnet-5-5",
 ) -> dict:
-    """Monthly and yearly inference cost for a volume of migrations.
+    """Inference cost for a volume of migrations, split by outcome.
 
-    Per-repo cost is the measured token use of complete runs priced at list
-    rate - each complete run migrated one whole repository. Two bugs fixed:
-    this read a key ("cost_per_file_usd") that no longer existed and raised
-    KeyError on every call; and it multiplied a per-file median by an assumed
-    54 files, which overstated per-repo cost by about 60% against the runs.
+    Earlier versions counted every finished run as a migrated repository. A
+    finished run can stop with tests still failing, so the sample mixed three
+    successful migrations with eight incomplete ones. Successful and
+    incomplete runs are now reported separately, with the success rate, and
+    two monthly figures: the cost if every run succeeds, and the cost at the
+    observed success rate, where failed attempts are paid for too.
     """
     if model not in MODELS:
         return {"error": f"unknown model {model!r}", "known": sorted(MODELS)}
     if repos_per_month < 0:
         return {"error": "repos_per_month must be >= 0"}
-    runs = _completed_runs()
+    runs = _finished_runs()
     if not runs:
-        return {"error": "no completed runs recorded yet"}
-    per_repo = [_cost(r["input_tokens"], r["output_tokens"], model) for r in runs]
-    median, low, high = _median(per_repo), min(per_repo), max(per_repo)
+        return {"error": "no finished runs recorded yet"}
 
-    def month(per: float) -> float:
-        return round(per * repos_per_month, 2)
+    cost = {r["run_id"]: _cost(r["input_tokens"], r["output_tokens"], model) for r in runs}
+    ok = [r for r in runs if r["status"] == "complete"]
+    bad = [r for r in runs if r["status"] != "complete"]
+    success = _spread([cost[r["run_id"]] for r in ok])
+    incomplete = _spread([cost[r["run_id"]] for r in bad])
+    total = sum(cost.values())
+    per_success_all_in = total / len(ok) if ok else None
+
+    def month(per):
+        return None if per is None else round(per * repos_per_month, 2)
 
     return {
         "model": model,
         "repos_per_month": repos_per_month,
-        "completed_runs_measured": len(runs),
-        "cost_per_repo_usd": {"median": round(median, 4),
-                              "min": round(low, 4), "max": round(high, 4)},
-        "inference_cost_per_month_usd": {"median": month(median),
-                                         "min": month(low), "max": month(high)},
-        "inference_cost_per_year_usd": round(month(median) * 12, 2),
-        "basis": "measured token use of complete runs at list price; "
-                 "runs used a free tier, so these are not invoices",
+        "runs_finished": len(runs),
+        "successful_migrations": len(ok),
+        "incomplete_migrations": len(bad),
+        "success_rate": round(len(ok) / len(runs), 3),
+        "cost_per_successful_migration_usd": success,
+        "cost_per_incomplete_run_usd": incomplete,
+        "cost_per_success_including_failed_attempts_usd":
+            None if per_success_all_in is None else round(per_success_all_in, 4),
+        "inference_cost_per_month_usd": {
+            "if_every_run_succeeds": month(success["median"]) if success else None,
+            "at_observed_success_rate": month(per_success_all_in),
+        },
+        "inference_cost_per_year_usd": {
+            "if_every_run_succeeds": None if not success else round(month(success["median"]) * 12, 2),
+            "at_observed_success_rate":
+                None if per_success_all_in is None else round(month(per_success_all_in) * 12, 2),
+        },
+        "caveats": [
+            "A successful migration imports every module and fails no regression test.",
+            "The observed success rate mixes harness versions: incomplete runs predate "
+            "fixes that later runs had. Treat it as conservative, and the sample as small.",
+            "Runs used a free tier; costs are measured tokens at list price, not invoices.",
+        ],
         "excludes": "CI compute, Entire and neatlogs subscription tiers, salaries",
     }
 
@@ -237,13 +292,29 @@ def cost_projection(
     )
 )
 def migration_results() -> dict:
-    _, summaries = _load()
-    best = max((s.get("modules_importable", 0) for s in summaries), default=0)
+    """What the agent delivers, and how often.
+
+    This used to report the best importable-module count across all runs -
+    199/199 - which every run reached, including the eight that still had
+    failing tests. The value claim is a working repository, so report how many
+    runs produced one.
+    """
+    runs = _finished_runs()
+    ok = [r for r in runs if r["status"] == "complete"]
     return {
         "target": "steamship-core/python-client",
         "modules_total": CODEMOD_BASELINE["modules_total"],
         "codemod_baseline": CODEMOD_BASELINE,
-        "upshift_modules_importable": best,
+        "upshift": {
+            "runs_finished": len(runs),
+            "successful_migrations": len(ok),
+            "success_rate": round(len(ok) / len(runs), 3) if runs else None,
+            "successful_result": (
+                {"modules": ok[-1]["modules"], "green_tests": ok[-1]["green_tests"]}
+                if ok else None),
+            "incomplete_results": sorted({r["green_tests"] for r in runs
+                                          if r["status"] != "complete"}),
+        },
         "customer_alternative_cost_usd": {
             "contractor_quote": "low five figures",
             "in_house_engineer": "1600-4000 (2-5 days at ~$100/hr loaded)",

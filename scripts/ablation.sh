@@ -15,3 +15,18 @@ for cfg in no-entire graph graph+memory; do
   grep -E "^final|^done" "evidence/logs/run-$cfg.log" >> "$progress"
 done
 echo "=== ALL DONE $(date '+%F %T') ===" >> "$progress"
+
+# Record which runs form this pass, so the README compares arms from one
+# harness version rather than whichever run of each arm happens to be newest.
+.venv/bin/python - "$progress" <<'PY2'
+import json, re, sys, pathlib
+text = pathlib.Path(sys.argv[1]).read_text()
+start = re.search(r"=== no-entire start (\S+ \S+)", text)
+ids = dict(re.findall(r"=== (\S+) start .*?\ndone -> .*/(\S+)\.jsonl", text, flags=re.S))
+model = next((l.split("=", 1)[1] for l in pathlib.Path(".env").read_text().splitlines()
+              if l.startswith("UPSHIFT_MODEL=")), "unknown")
+pathlib.Path("evidence/ablation.json").write_text(json.dumps({
+    "note": "The three arms of one ablation pass, run back to back on the same harness.",
+    "model": model, "pass_started": start.group(1) if start else None, "runs": ids,
+}, indent=2) + "\n")
+PY2

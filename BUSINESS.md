@@ -133,20 +133,31 @@ two of them because Ari itself raised them:
    measurement probe (see `bench/baseline-python-client.md`). The honest
    baseline is **31/199**, the codemod leaves it at **31/199**, and the agent's
    result is in the README and `evidence/`.
-4. **`cost_projection` was broken, then wrong.** After (1), the tool read a key
-   `unit_economics` no longer returned, so every call failed — over MCP, Ari
-   received `Error executing tool cost_projection`. Separately it priced a
-   repository as a per-file median times an assumed file count, overstating
-   per-repo cost by ~60%. A completed run *is* one repository migrated, so
-   per-repo cost is now measured directly from 11 complete runs:
+4. **`cost_projection` was broken, then wrong, then optimistic.**
+   - *Broken:* after (1) it read a key `unit_economics` no longer returned, so
+     every call failed — over MCP, Ari received `Error executing tool
+     cost_projection`.
+   - *Wrong:* it priced a repository as a per-file median times an assumed file
+     count, overstating per-repo cost by ~60%.
+   - *Optimistic:* the first fix measured per-repo cost from every run that
+     finished, calling each one "a repository migrated". That was false. A run
+     can finish with tests still failing; of 11 finished runs only **3
+     completed the migration** — every module importing and every regression
+     test passing. The other 8 were incomplete.
 
-   | Model | Per repo (median) | Range | 250 repos / month |
-   |---|---|---|---|
-   | claude-sonnet-5-5 | **$0.94** | $0.74 – $1.51 | **$235** |
-   | claude-opus-5-5 | **$1.88** | $1.49 – $3.03 | **$470** |
+   Successful and incomplete runs are now reported separately:
 
-   Lower than section 1's figures, so the pricing conclusions hold with more
-   margin. Covered by `tests/test_mcp_server.py` (19 tests, including real
-   JSON-RPC calls over HTTP with the API key); 11 of them fail on the broken
-   version.
+   | claude-sonnet-5-5 | Per repo | 250 repos / month |
+   |---|---|---|
+   | Successful migration (n=3) | **$0.93** ($0.85 – $0.94) | **$232** if every run succeeds |
+   | Incomplete run (n=8) | $0.95 ($0.74 – $1.51) | — |
+   | Per success, paying for failed attempts (27% rate) | **$3.57** | **$892** at the observed rate |
 
+   For pricing, the observed-rate figure is the conservative one. It is
+   pessimistic in one respect: all 8 incomplete runs came before two harness
+   fixes, and all 3 runs after them completed — but three runs is too few to
+   plan on. Even at $3.57, inference is under 0.5% of a $750 price.
+
+   Covered by `tests/test_mcp_server.py` (28 tests), including a regression
+   test for a run that writes a summary but still has a failing test. Against
+   the version that counted every finished run as a migration, 10 fail.

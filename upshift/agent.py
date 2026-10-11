@@ -491,6 +491,8 @@ class MigrationAgent:
                 modules_total=final.total,
                 green_tests=tests.passed,
                 baseline_importable=start.ok,
+                green_total=tests.passed + len(remaining),
+                failing_tests=len(remaining),
             )
             print(f"\nfinal: {final.ok}/{final.total} modules importable, "
                   f"{tests.passed} green tests passing", flush=True)

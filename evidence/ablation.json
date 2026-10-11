@@ -1,0 +1,10 @@
+{
+  "note": "The three arms of one ablation pass, run back to back by scripts/ablation.sh on the same harness. Only runs from the same pass are compared; later runs used a fixed harness and are not part of this comparison.",
+  "model": "claude-haiku-5.5:free",
+  "pass_started": "2026-10-11 11:19:05",
+  "runs": {
+    "no-entire": "no-entire-1011-1119-1c17",
+    "graph": "graph-1011-1126-fe10",
+    "graph+memory": "graph+memory-1011-1134-80df"
+  }
+}

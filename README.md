@@ -24,6 +24,16 @@ Target: [`steamship-core/python-client`](https://github.com/steamship-core/pytho
 | v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
 | v2 + `bump-pydantic` + **Upshift** | **199 / 199** | **62 / 62** |
 
+That row is one complete run. It is not every run: **3 of 11 finished runs completed the migration (27%)**. A run is
+complete only when every module imports *and* no regression test fails — a run
+that finishes with a test still failing is incomplete, and is reported that way.
+
+The rate is not stable yet. Every run before two harness fixes (the test phase
+ignoring the agent's own redirects, and a failure that could not be traced to
+any file) stopped short of 62/62: **0 of 8**. Every run after them completed:
+**3 of 3**. Three runs is too few to call a rate. Runs now record the commit
+that produced them, so the next ones can be tied to code.
+
 The codemod exits cleanly, changes 11 files, and **gains zero modules**. It does
 mechanical renames; it cannot decide that `fetch_if_exists = False` on a model
 must become `fetch_if_exists: ClassVar[bool] = False` — that takes reading how
@@ -82,13 +92,22 @@ those costs live and turns them into a business.
 Same target, same model, same starting point. Only the context changes.
 Measured, not asserted — and the answer is not the one we wanted.
 
-| Config | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |
-|---|---|---|---|---|---|---|
-| v2, untouched | 31 / 199 | 0 | - | - | - | - |
-| `bump-pydantic` (codemod alone) | **31 / 199** | 0 | 11 changed | - | $0 | - |
-| no-entire | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 0 |
-| graph | **199 / 199** | 62 | 22/24 | 1.0 | $0.0000 | 0 |
-| graph+memory | **199 / 199** | 55 | 22/31 | 2.0 | $0.0000 | 3 |
+**Read this table for what it is.** All three arms come from one pass on the
+earlier harness, before the fixes above, and **none of them completed the
+migration** — each finished with tests still failing. The comparison between
+arms is fair, because they share a harness; it is a comparison of how far each
+got, not of three successful migrations. It has not been re-run on the current
+harness.
+
+| Config | Outcome | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |
+|---|---|---|---|---|---|---|---|
+| v2, untouched | - | 31 / 199 | 0 | - | - | - | - |
+| `bump-pydantic` (codemod alone) | incomplete | **31 / 199** | 0 | 11 changed | - | $0 | - |
+| no-entire | incomplete | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 0 |
+| graph | incomplete | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 1 |
+| graph+memory | incomplete | **199 / 199** | 55 | 22/31 | 2.0 | $0.0000 | 3 |
+
+Outcome across these runs: **0 of 3 complete** (0%). A run is complete only when every module imports and no regression test fails; finishing is not the same as migrating.
 
 **Entire Graph made no difference, and memory made things worse.** Identical
 outcome with and without Graph; adding accumulated lessons cost six tests,
@@ -207,10 +226,9 @@ python -m upshift.mcp_server --port 8787 --api-key <secret> --allow-host <tunnel
   offline; they're excluded as noise, not cherry-picked. On the wider offline
   suite the migrated code matches the v1 original — 74 passed either way, with
   one fewer failure after migration.
-- **The last test was found by another agent first.** Upshift stalled at 61/62
-  and quarantined `test_static_instance_methods`; an earlier draft of this repo
-  claimed no fix existed, which was wrong. Codex found it. Two harness bugs
-  were behind the stall — the test phase ignored the agent's own redirects, and
-  a failure with no `src/` frame could not be blamed on any file, so it was
-  never picked. With both fixed the agent now derives the fix itself and
-  reaches 62/62 unaided. See [`evidence/RECOVERY.md`](evidence/RECOVERY.md).
+- **The last test was fixed by another agent, not by Upshift.** Upshift reached
+  199/199 and 61/62 and quarantined
+  `test_static_instance_methods` after three attempts. Codex found the
+  `__init_subclass__` / `__pydantic_init_subclass__` fix that makes the
+  unchanged test pass; an earlier draft of this repo claimed no such fix
+  existed, which was wrong. See [`evidence/RECOVERY.md`](evidence/RECOVERY.md).

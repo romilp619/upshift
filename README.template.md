@@ -24,6 +24,16 @@ Target: [`steamship-core/python-client`](https://github.com/steamship-core/pytho
 | v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
 | v2 + `bump-pydantic` + **Upshift** | RESULT_MODULES | RESULT_TESTS |
 
+That row is one complete run. It is not every run: **RESULT_RATE**. A run is
+complete only when every module imports *and* no regression test fails — a run
+that finishes with a test still failing is incomplete, and is reported that way.
+
+The rate is not stable yet. Every run before two harness fixes (the test phase
+ignoring the agent's own redirects, and a failure that could not be traced to
+any file) stopped short of 62/62: **0 of 8**. Every run after them completed:
+**3 of 3**. Three runs is too few to call a rate. Runs now record the commit
+that produced them, so the next ones can be tied to code.
+
 The codemod exits cleanly, changes 11 files, and **gains zero modules**. It does
 mechanical renames; it cannot decide that `fetch_if_exists = False` on a model
 must become `fetch_if_exists: ClassVar[bool] = False` — that takes reading how
@@ -81,6 +91,13 @@ those costs live and turns them into a business.
 
 Same target, same model, same starting point. Only the context changes.
 Measured, not asserted — and the answer is not the one we wanted.
+
+**Read this table for what it is.** All three arms come from one pass on the
+earlier harness, before the fixes above, and **none of them completed the
+migration** — each finished with tests still failing. The comparison between
+arms is fair, because they share a harness; it is a comparison of how far each
+got, not of three successful migrations. It has not been re-run on the current
+harness.
 
 ABLATION_TABLE
 
