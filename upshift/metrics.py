@@ -63,7 +63,12 @@ class RunMetrics:
 
     @property
     def path(self) -> Path:
-        return ROOT / "evidence" / "runs" / f"{self.run_id}.jsonl"
+        # Dashboard runs write elsewhere so the curated evidence - and every
+        # figure computed from it - does not change behind the submission.
+        import os
+        base = Path(os.environ["UPSHIFT_RUNS_DIR"]) if os.environ.get("UPSHIFT_RUNS_DIR") \
+            else ROOT / "evidence" / "runs"
+        return base / f"{self.run_id}.jsonl"
 
     def record(self, result: FileResult) -> None:
         self.files.append(result)
@@ -74,7 +79,8 @@ class RunMetrics:
     def finish(self, suite_pass_rate: float, note: str = "",
                modules_importable: int = 0, modules_total: int = 0,
                green_tests: int = 0, baseline_importable: int = 0,
-               green_total: int = 0, failing_tests: int = 0) -> None:
+               green_total: int = 0, failing_tests: int = 0,
+               status_override: str = "", **extra) -> None:
         summary = {
             "type": "summary",
             "run_id": self.run_id,
@@ -95,13 +101,14 @@ class RunMetrics:
             # A summary means the process finished, not that the migration did.
             # Only a run that imports every module and fails no regression test
             # is a successful migration.
-            "status": migration_status(modules_importable, modules_total,
-                                       green_tests, green_total, failing_tests),
+            "status": status_override or migration_status(
+                modules_importable, modules_total, green_tests, green_total, failing_tests),
             "harness": harness_version(),
             "total_cost_usd": round(sum(f.cost_usd for f in self.files), 4),
             "total_rollbacks": sum(f.rollbacks for f in self.files),
             "duration_s": round(time.time() - self.started_at, 1),
             "note": note,
+            **extra,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a") as fh:

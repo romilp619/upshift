@@ -8,3 +8,4 @@ evidence/runs/*.raw.jsonl
 .entire/cache/
 # run logs are evidence - keep them
 #evidence/logs/*.log
+workspaces/

@@ -158,13 +158,22 @@ class Target:
     venv: Path = None
     branch: str = "upshift/pydantic-v2"   # Trails are per-branch
     green_tests: list = None              # offline-passing subset: the regression guard
+    workdir: str = ""                     # isolated git worktree; empty = the shared clone
+    green_expected: int = 0               # size of the selected regression suite
+
+    @property
+    def base(self) -> Path:
+        """The shared clone. Holds the object database, the venv and every branch."""
+        return TARGETS_DIR / self.name
 
     @property
     def path(self) -> Path:
-        return TARGETS_DIR / self.name
+        return Path(self.workdir) if self.workdir else self.base
 
     # --- lifecycle -------------------------------------------------------
     def clone(self, fresh: bool = False) -> Path:
+        if self.workdir:
+            return self._worktree()
         if fresh and self.path.exists():
             shutil.rmtree(self.path)
         if not self.path.exists():
@@ -180,6 +189,40 @@ class Target:
                 cwd=self.path, check=True,
             )
         return self.path
+
+    def _worktree(self) -> Path:
+        """A private working directory on its own branch.
+
+        Every run used to reset the one shared clone, so a run could disturb
+        another run's tree or a branch someone wanted kept. A worktree shares
+        the clone's object database - commits made here are visible to it - but
+        has its own files and HEAD, and the branch is named per run so verified
+        branches are never checked out or reset.
+        """
+        if not self.base.exists():
+            TARGETS_DIR.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "clone", "--quiet", self.url, str(self.base)], check=True)
+        work = self.path
+        if not work.exists():
+            work.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "worktree", "add", "--quiet", "--force", "--detach",
+                            str(work), self.commit or "HEAD"],
+                           cwd=self.base, check=True, capture_output=True)
+        venv = work / ".venv"
+        if not venv.exists() and (self.base / ".venv").exists():
+            venv.symlink_to(self.base / ".venv")
+        subprocess.run(["git", "checkout", "--quiet", "--force", "-B", self.branch,
+                        self.commit or "HEAD"], cwd=work, check=True, capture_output=True)
+        return work
+
+    def head(self) -> str:
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=self.path,
+                              capture_output=True, text=True).stdout.strip()
+
+    def discard_uncommitted(self) -> None:
+        """Drop an edit that was written but never verified (used on cancel)."""
+        subprocess.run(["git", "checkout", "HEAD", "--", "."], cwd=self.path,
+                       capture_output=True)
 
     def reset(self, to: str = "") -> None:
         """Return the working tree to the pinned commit - used between configs.
@@ -425,9 +468,15 @@ class Target:
         if only:
             cmd += [str(p) for p in only]
         start = time.time()
+        # The venv's editable install points at the base clone's src/. In a
+        # worktree that would test the wrong code, so put this tree first.
+        import os
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(self.path / "src")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
         try:
             proc = subprocess.run(
-                cmd, cwd=self.path, capture_output=True, text=True, timeout=timeout
+                cmd, cwd=self.path, capture_output=True, text=True, timeout=timeout, env=env
             )
             out = (proc.stdout or "") + (proc.stderr or "")
         except subprocess.TimeoutExpired as exc:

@@ -26,6 +26,7 @@ def _load_target(name: str) -> Target:
         name=match["name"], url=match["url"],
         commit=match.get("commit", ""), test_cmd=match.get("test_cmd"),
         green_tests=match.get("green_tests_subset"),
+        green_expected=(match.get("baseline") or {}).get("green_tests", 0),
     )
 
 
@@ -87,8 +88,22 @@ def cmd_run(args):
     if missing:
         sys.exit(f"missing env: {', '.join(missing)} (put them in .env)")
     target = _load_target(args.target)
+    if args.workdir:
+        # Isolated run: a private worktree on a per-run branch. The shared clone
+        # and every branch already in it - verified ones included - are untouched.
+        target.workdir = args.workdir
+        target.branch = args.branch or f"upshift/run-{args.run_id or 'local'}"
+    elif args.branch:
+        target.branch = args.branch
     target.clone()
     target.reset()
+
+    # SIGTERM (a dashboard cancel) takes the same path as Ctrl-C, so the agent
+    # discards any unverified edit and records the run as cancelled.
+    import signal
+    def _stop(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _stop)
 
     flags = {
         "no-entire":    dict(use_graph=False, use_memory=False),
@@ -97,7 +112,7 @@ def cmd_run(args):
     }[args.config]
 
     obs.init(workflow_name="upshift", tags=[args.config, target.name])
-    agent = MigrationAgent(target, config_name=args.config, **flags)
+    agent = MigrationAgent(target, config_name=args.config, run_id=args.run_id or "", **flags)
     print(f"run {agent.run_id}: config={args.config}", flush=True)
     try:
         metrics = agent.run(max_iterations=args.max_iterations,
@@ -143,6 +158,10 @@ def main():
     p.add_argument("--max-iterations", type=int, default=150)
     p.add_argument("--no-codemod", action="store_true",
                    help="skip the bump-pydantic pre-pass")
+    p.add_argument("--run-id", default="", help="name for the run record")
+    p.add_argument("--workdir", default="",
+                   help="run in an isolated git worktree at this path")
+    p.add_argument("--branch", default="", help="branch for the run's commits")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("report", help="print the evidence tables")
