@@ -298,9 +298,36 @@ class Target:
                     if hit:
                         target = hit[0]
                         break
+            if not target:
+                # No src/ frame and no class we own: the failure is raised
+                # inside the library's own machinery from a class the test
+                # defines. test_static_instance_methods is the case - its only
+                # frames are the test file and pydantic internals. Blame what
+                # the test imports from the package, which is what it exercises.
+                target = self._blamed_by_import(failure)
             if target:
                 out.setdefault(target, []).append(failure)
         return out
+
+    def _blamed_by_import(self, failure: dict) -> str:
+        """First package module the failing test imports that exists in src/."""
+        test_file = next((f for f in ImportResult.frames_of(failure)
+                          if "/tests/" in f and f.endswith(".py")), "")
+        if not test_file or not Path(test_file).exists():
+            return ""
+        package = ""
+        src = self.path / "src"
+        if src.is_dir():
+            package = next((d.name for d in src.iterdir()
+                            if d.is_dir() and (d / "__init__.py").exists()), "")
+        if not package:
+            return ""
+        for match in re.finditer(rf"^\s*from\s+({re.escape(package)}[\w.]*)\s+import",
+                                 Path(test_file).read_text(), flags=re.M):
+            rel = Path("src") / (match.group(1).replace(".", "/") + ".py")
+            if (self.path / rel).exists():
+                return str(rel)
+        return ""
 
     def dependency_pins(self, package: str) -> list[tuple[str, int, str]]:
         """(file, line number, text) for every declared pin of `package`.

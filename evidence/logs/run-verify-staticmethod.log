@@ -1,0 +1,31 @@
+run graph-1011-1431-ee3c: config=graph
+start: 31/199 modules importable
+[  1] import ok   src/steamship/data/package/package.py                    imports=116/199 tests=10 att=1 rb=0 12.68s 
+[  2] import ok   src/steamship/agents/schema/action.py                    imports=135/199 tests=11 att=1 rb=0 10.02s 
+[  3] import ok   src/steamship/base/model.py                              imports=165/199 tests=35 att=2 rb=1 34.96s 
+[  4] import ok   src/steamship/agents/functional/functions_based.py       imports=169/199 tests=35 att=1 rb=0 16.97s 
+[  5] import ok   src/steamship/agents/tools/question_answering/prompt_database_question_answerer.py imports=176/199 tests=35 att=1 rb=0 15.36s 
+[  6] import ok   src/steamship/agents/tools/image_generation/dalle.py     imports=177/199 tests=35 att=1 rb=0 10.56s 
+[  7] import ok   src/steamship/agents/tools/image_generation/google_image_search.py imports=178/199 tests=35 att=1 rb=0 10.79s 
+[  8] import ok   src/steamship/plugin/capabilities.py                     imports=180/199 tests=52 att=1 rb=0 40.28s 
+[  9] import ok   src/steamship/agents/tools/image_generation/stable_diffusion.py imports=185/199 tests=52 att=1 rb=0 9.9s 
+[ 10] import ok   src/steamship/agents/tools/classification/sentiment_analysis_tool.py imports=186/199 tests=52 att=1 rb=0 11.51s 
+[ 11] import ok   src/steamship/agents/react/react.py                      imports=189/199 tests=52 att=1 rb=0 15.78s 
+[ 12] import ok   src/steamship/agents/tools/classification/zero_shot_classifier_tool.py imports=191/199 tests=52 att=1 rb=0 13.82s 
+[ 13] import ok   src/steamship/agents/tools/conversation_starters/knock_knock_tool.py imports=193/199 tests=52 att=1 rb=0 10.09s 
+[ 14] import ok   src/steamship/agents/tools/video_generation/did_video_generator_tool.py imports=195/199 tests=52 att=1 rb=0 15.28s 
+[ 15] import ok   src/steamship/agents/basic_chat.py                       imports=196/199 tests=52 att=1 rb=0 11.36s 
+[ 16] import ok   src/steamship/agents/functions_based.py                  imports=197/199 tests=52 att=1 rb=0 16.3s 
+[ 17] import ok   src/steamship/agents/tools/classification/multiple_choice_tool.py imports=198/199 tests=52 att=1 rb=0 20.44s 
+[ 18] import ok   src/steamship/agents/tools/text_generation/custom_llm_prompt.py imports=199/199 tests=52 att=1 rb=0 15.49s 
+all modules import
+[ 19] tests  ok   src/steamship/invocable/config.py                        imports=199/199 tests=58 att=1 rb=0 19.8s 
+[ 20] tests  ok   src/steamship/plugin/capabilities.py                     imports=199/199 tests=61 att=1 rb=0 50.97s 
+[ 21] tests  ok   src/steamship/base/model.py                              imports=199/199 tests=62 att=1 rb=0 26.71s 
+all regression tests pass
+pins: updated requirements.txt, requirements.dev.txt
+
+final: 199/199 modules importable, 62 green tests passing
+COMPLETE - every module imports and every regression test passes
+2026-10-11 14:38:12 - neatlogs - INFO - Neatlogs SDK shutdown complete
+run record -> /home/romil/neathack/evidence/runs/graph-1011-1431-ee3c.jsonl

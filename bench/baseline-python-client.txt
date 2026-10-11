@@ -1,0 +1,7 @@
+target=python-client
+commit=3bcc5d794bf40ec29fba9d661791f691ee367c55
+untouched_modules=31/199
+untouched_green_tests=0
+codemod_files_changed=11
+codemod_modules=31/199
+codemod_green_tests=0

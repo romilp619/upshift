@@ -221,6 +221,42 @@ code; those ~190 failures need the hosted Steamship API and fail identically
 under v1. The green subset now passes in full, in a clean room installed from
 declared dependencies alone.
 
-**Who found what.** The agent reached 199/199 and 61/62 and quarantined this
-file after three attempts. It did not find this fix; Codex did, and the
-conclusion that no fix existed was mine and was premature.
+### Why the agent had not found it
+
+Two harness faults, both exposed by an independent run that scored 56:
+
+1. **The test phase ignored redirects.** When the agent answers
+   `NO_CHANGE_NEEDED: <path>`, `migrate_file` pushes that path onto
+   `self.redirects` — and the phase-2 loop picked files only by blame ranking
+   and never read the list. In run `graph-1011-1356-94de`, four steps
+   redirected to `plugin/outputs/plugin_output.py` and all four were dropped;
+   it was fixed at step 29 only because it eventually surfaced in the ranking.
+2. **This failure could not be blamed on any file.** Its only stack frames are
+   the test file and pydantic internals, and the class it builds is defined in
+   the test, so neither the deepest-`src`-frame rule nor the class-name lookup
+   matched. `blame_tests` returned nothing, so the file was never picked and
+   the agent never saw the error at all.
+
+Fixed: phase 2 drains redirects before ranking, and an unattributable failure
+is blamed on the first package module the failing test imports — here
+`from steamship.base.model import CamelModel`, which is exactly the right file.
+
+**The agent now derives this fix itself.** From the pinned commit, unaided:
+
+```
+start: 31/199 modules importable
+codemod: 11 files changed -> 31/199
+all modules import
+all regression tests pass
+pins: updated requirements.txt, requirements.dev.txt
+final: 199/199 modules importable, 62 green tests passing
+COMPLETE - every module imports and every regression test passes
+```
+
+Clean room, installed from declared dependencies alone: **199/199 modules,
+62 passed, 0 failed, 0 errors.**
+
+**Who found what.** Codex found the fix first, and the conclusion that no fix
+existed was mine and was premature. What the agent lacked was not the idea but
+the ability to see the failure: once redirects were followed and the failure
+could be attributed to a file, it reached the same answer on its own.
