@@ -19,7 +19,7 @@ Target: [`steamship-core/python-client`](https://github.com/steamship-core/pytho
 
 | | Modules importable | Green tests |
 |---|---|---|
-| Pydantic v1 — the ceiling | 198 / 199 | 62 / 62 |
+| Pydantic v1 — the original code | 198 / 199 | 62 / 62 |
 | v2, untouched | 31 / 199 | 0 / 62 |
 | v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
 | v2 + `bump-pydantic` + **Upshift** | RESULT_MODULES | RESULT_TESTS |
@@ -198,4 +198,12 @@ python -m upshift.mcp_server --port 8787 --api-key <secret> --allow-host <tunnel
   the result is credited to the harness rather than to one model. Costs for
   other models in `BUSINESS.md` are measured token counts at list price.
 - **62 of 266 tests.** The rest need the hosted Steamship API and can't run
-  offline; they're excluded as noise, not cherry-picked.
+  offline; they're excluded as noise, not cherry-picked. On the wider offline
+  suite the migrated code matches the v1 original — 74 passed either way, with
+  one fewer failure after migration.
+- **The last test was fixed by another agent, not by Upshift.** Upshift reached
+  199/199 and 61/62 and quarantined
+  `test_static_instance_methods` after three attempts. Codex found the
+  `__init_subclass__` / `__pydantic_init_subclass__` fix that makes the
+  unchanged test pass; an earlier draft of this repo claimed no such fix
+  existed, which was wrong. See [`evidence/RECOVERY.md`](evidence/RECOVERY.md).

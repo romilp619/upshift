@@ -127,7 +127,7 @@ The pin fix was produced automatically by the run — `pins: updated
 requirements.txt, requirements.dev.txt`, committed as the last of 23 commits,
 with no manual step.
 
-## The one remaining failure
+## The one remaining failure — and how it was fixed
 
 `tests/steamship_tests/utils/test_static_instance_methods.py` —
 `AttributeError: name`.
@@ -147,12 +147,10 @@ assert CallableFoo.name() == "static"     # the class-level staticmethod
 assert callable_foo.name() == "instance"  # the per-instance value
 ```
 
-Under pydantic v1 this worked: fields stayed ordinary class attributes, so the
-`@staticmethod` named `name` remained reachable on the class.
-
-Under v2 it cannot. The metaclass removes declared fields from the class
-namespace and installs a `__getattr__` that raises for anything that is not a
-private attribute:
+Under v1 this worked: declared fields stayed ordinary class attributes, so the
+`@staticmethod` remained reachable on the class. Under v2 the metaclass removes
+field names from the class namespace and installs a `__getattr__` that raises
+for anything that is not a private attribute:
 
 ```python
 # pydantic/_internal/_model_construction.py
@@ -163,20 +161,66 @@ def __getattr__(self, item):
     raise AttributeError(item)
 ```
 
-Reproduced directly:
-
 ```
 is 'name' a declared field?       True
 class attr 'name' in __dict__?    False
 CallableFoo.name()             -> AttributeError: name
 ```
 
-So the field declaration wins and the staticmethod is gone from the class.
-This is not an incomplete migration — it is a v1 behaviour v2 deliberately
-removed. The only honest fixes are to rename one of the two, or drop the test,
-and both change the library's public surface. The agent is explicitly
-instructed never to delete a test or weaken an assertion to make a suite pass,
-so it left it alone and quarantined the file.
+### Retraction
 
-**62/62 was never reachable.** The ceiling for a faithful migration of this
-repo is 61, and the agent reaches it.
+An earlier version of this file concluded that the only honest fixes were to
+rename one of the two or delete the test, and that **"62/62 was never
+reachable; 61 is the ceiling for a faithful migration."**
+
+**That was wrong.** It was asserted from the mechanism without trying to work
+around it. Codex reproduced the failure and made the unchanged test pass, and
+the approach holds up.
+
+### The fix
+
+`__getattr__` on a metaclass is only consulted when normal attribute lookup
+*fails*. Restoring a real class attribute means lookup succeeds and the
+metaclass is never asked. The two subclass hooks fire either side of field
+processing, which is exactly the window needed:
+
+```python
+class CamelModel(BaseModel):
+    def __init_subclass__(cls, **kwargs):
+        # still in the raw namespace: capture the colliding descriptors
+        annotations = cls.__dict__.get("__annotations__", {}) or {}
+        cls.__field_name_descriptors__ = {
+            name: value
+            for name, value in cls.__dict__.items()
+            if name in annotations and isinstance(value, (staticmethod, classmethod))
+        }
+        super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs):
+        # fields are built: put the descriptors back
+        super().__pydantic_init_subclass__(**kwargs)
+        for name, descriptor in cls.__dict__.get("__field_name_descriptors__", {}).items():
+            setattr(cls, name, descriptor)
+```
+
+The field is untouched — it stays in `model_fields`, and instance access still
+finds the per-instance value in `__dict__` first. Committed as `caab59f` on the
+shared base class, so every model in the repo gets it.
+
+### Verified
+
+| | v1 reference | v2 + Upshift |
+|---|---|---|
+| Modules importable | 198 / 199 | **199 / 199** |
+| Green subset | 62 / 62 | **62 / 62** |
+| Wider offline suite | 74 passed, 97 failed, 95 errors | 74 passed, **96 failed**, 95 errors |
+
+The wider suite is unchanged except for one fewer failure than the original v1
+code; those ~190 failures need the hosted Steamship API and fail identically
+under v1. The green subset now passes in full, in a clean room installed from
+declared dependencies alone.
+
+**Who found what.** The agent reached 199/199 and 61/62 and quarantined this
+file after three attempts. It did not find this fix; Codex did, and the
+conclusion that no fix existed was mine and was premature.

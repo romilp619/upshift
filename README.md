@@ -19,10 +19,11 @@ Target: [`steamship-core/python-client`](https://github.com/steamship-core/pytho
 
 | | Modules importable | Green tests |
 |---|---|---|
-| Pydantic v1 — the ceiling | 198 / 199 | 62 / 62 |
+| Pydantic v1 — the original code | 198 / 199 | 62 / 62 |
 | v2, untouched | 31 / 199 | 0 / 62 |
 | v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
 | v2 + `bump-pydantic` + **Upshift** | **199 / 199** | **61 / 62** |
+| … + the staticmethod/field fix ([details](evidence/RECOVERY.md)) | **199 / 199** | **62 / 62** |
 
 The codemod exits cleanly, changes 11 files, and **gains zero modules**. It does
 mechanical renames; it cannot decide that `fetch_if_exists = False` on a model
@@ -87,7 +88,7 @@ Measured, not asserted — and the answer is not the one we wanted.
 | v2, untouched | 31 / 199 | 0 | - | - | - | - |
 | `bump-pydantic` (codemod alone) | **31 / 199** | 0 | 11 changed | - | $0 | - |
 | no-entire | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 0 |
-| graph | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 1 |
+| graph | **199 / 199** | 61 | 21/23 | 1.0 | $0.0000 | 1 |
 | graph+memory | **199 / 199** | 55 | 22/31 | 2.0 | $0.0000 | 3 |
 
 **Entire Graph made no difference, and memory made things worse.** Identical
@@ -204,4 +205,12 @@ python -m upshift.mcp_server --port 8787 --api-key <secret> --allow-host <tunnel
   the result is credited to the harness rather than to one model. Costs for
   other models in `BUSINESS.md` are measured token counts at list price.
 - **62 of 266 tests.** The rest need the hosted Steamship API and can't run
-  offline; they're excluded as noise, not cherry-picked.
+  offline; they're excluded as noise, not cherry-picked. On the wider offline
+  suite the migrated code matches the v1 original — 74 passed either way, with
+  one fewer failure after migration.
+- **The last test was fixed by another agent, not by Upshift.** Upshift reached
+  199/199 and 61/62 and quarantined
+  `test_static_instance_methods` after three attempts. Codex found the
+  `__init_subclass__` / `__pydantic_init_subclass__` fix that makes the
+  unchanged test pass; an earlier draft of this repo claimed no such fix
+  existed, which was wrong. See [`evidence/RECOVERY.md`](evidence/RECOVERY.md).
