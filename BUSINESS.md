@@ -133,3 +133,20 @@ two of them because Ari itself raised them:
    measurement probe (see `bench/baseline-python-client.md`). The honest
    baseline is **31/199**, the codemod leaves it at **31/199**, and the agent's
    result is in the README and `evidence/`.
+4. **`cost_projection` was broken, then wrong.** After (1), the tool read a key
+   `unit_economics` no longer returned, so every call failed — over MCP, Ari
+   received `Error executing tool cost_projection`. Separately it priced a
+   repository as a per-file median times an assumed file count, overstating
+   per-repo cost by ~60%. A completed run *is* one repository migrated, so
+   per-repo cost is now measured directly from 11 complete runs:
+
+   | Model | Per repo (median) | Range | 250 repos / month |
+   |---|---|---|---|
+   | claude-sonnet-5-5 | **$0.94** | $0.74 – $1.51 | **$235** |
+   | claude-opus-5-5 | **$1.88** | $1.49 – $3.03 | **$470** |
+
+   Lower than section 1's figures, so the pricing conclusions hold with more
+   margin. Covered by `tests/test_mcp_server.py` (19 tests, including real
+   JSON-RPC calls over HTTP with the API key); 11 of them fail on the broken
+   version.
+

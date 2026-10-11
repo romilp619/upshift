@@ -63,6 +63,29 @@ def _load() -> tuple[list[dict], list[dict]]:
     return files, summaries
 
 
+def _completed_runs() -> list[dict]:
+    """Per-run token totals for runs that finished (wrote a summary)."""
+    runs = []
+    for path in sorted(glob.glob(str(RUNS / "*.jsonl"))):
+        rows = [json.loads(line) for line in open(path)]
+        if not any(r.get("type") == "summary" for r in rows):
+            continue
+        files = [r for r in rows if r.get("type") == "file"]
+        runs.append({
+            "run_id": Path(path).stem,
+            "steps": len(files),
+            "input_tokens": sum(r.get("input_tokens", 0) for r in files),
+            "output_tokens": sum(r.get("output_tokens", 0) for r in files),
+        })
+    return runs
+
+
+def _median(values: list[float]) -> float:
+    values = sorted(values)
+    mid = len(values) // 2
+    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
+
+
 def _cost(inp: float, out: float, model: str) -> float:
     rate_in, rate_out = MODELS.get(model, MODELS["claude-opus-5-5"])
     return round(inp / 1e6 * rate_in + out / 1e6 * rate_out, 6)
@@ -107,11 +130,18 @@ def unit_economics() -> dict:
                                    "max": max(outs)},
         "cost_per_file_usd_median": {m: _cost(med_in, med_out, m) for m in MODELS},
         "cost_per_file_usd_mean": {m: _cost(mean_in, mean_out, m) for m in MODELS},
-        "cost_per_repo_usd_198_files_median": {
-            m: round(_cost(med_in, med_out, m) * 198, 4) for m in MODELS
+        # A completed run IS one repository migrated, so per-repo cost is
+        # measured directly rather than per-file cost times a guessed file
+        # count. The guess (198, then 54) overstated it by roughly 60%.
+        "cost_per_repo_usd_measured": {
+            m: round(_median([_cost(r["input_tokens"], r["output_tokens"], m)
+                              for r in _completed_runs()]), 4) if _completed_runs() else None
+            for m in MODELS
         },
+        "completed_runs_measured": len(_completed_runs()),
         "caveats": [
-            f"Sample is {n} distinct files out of 54 that need migrating - treat as indicative.",
+            f"Per-file figures cover {n} distinct files; per-repo figures come from "
+            f"{len(_completed_runs())} complete runs and need no file-count assumption.",
             "Distribution is skewed: one file used 10779 output tokens, the rest under 1400. "
             "Prefer the median for unit cost and the mean only for worst-case budgeting.",
             "All recorded runs used the free model, so these are token counts priced at "
@@ -162,23 +192,40 @@ def run_detail(run_id: str) -> dict:
 )
 def cost_projection(
     repos_per_month: int = 100,
-    files_per_repo: int = 54,
     model: str = "claude-sonnet-5-5",
 ) -> dict:
-    econ = unit_economics()
-    if "error" in econ:
-        return econ
-    per_file = econ["cost_per_file_usd"].get(model)
-    if per_file is None:
+    """Monthly and yearly inference cost for a volume of migrations.
+
+    Per-repo cost is the measured token use of complete runs priced at list
+    rate - each complete run migrated one whole repository. Two bugs fixed:
+    this read a key ("cost_per_file_usd") that no longer existed and raised
+    KeyError on every call; and it multiplied a per-file median by an assumed
+    54 files, which overstated per-repo cost by about 60% against the runs.
+    """
+    if model not in MODELS:
         return {"error": f"unknown model {model!r}", "known": sorted(MODELS)}
-    monthly = per_file * files_per_repo * repos_per_month
+    if repos_per_month < 0:
+        return {"error": "repos_per_month must be >= 0"}
+    runs = _completed_runs()
+    if not runs:
+        return {"error": "no completed runs recorded yet"}
+    per_repo = [_cost(r["input_tokens"], r["output_tokens"], model) for r in runs]
+    median, low, high = _median(per_repo), min(per_repo), max(per_repo)
+
+    def month(per: float) -> float:
+        return round(per * repos_per_month, 2)
+
     return {
         "model": model,
         "repos_per_month": repos_per_month,
-        "files_per_repo": files_per_repo,
-        "cost_per_repo_usd": round(per_file * files_per_repo, 4),
-        "inference_cost_per_month_usd": round(monthly, 2),
-        "inference_cost_per_year_usd": round(monthly * 12, 2),
+        "completed_runs_measured": len(runs),
+        "cost_per_repo_usd": {"median": round(median, 4),
+                              "min": round(low, 4), "max": round(high, 4)},
+        "inference_cost_per_month_usd": {"median": month(median),
+                                         "min": month(low), "max": month(high)},
+        "inference_cost_per_year_usd": round(month(median) * 12, 2),
+        "basis": "measured token use of complete runs at list price; "
+                 "runs used a free tier, so these are not invoices",
         "excludes": "CI compute, Entire and neatlogs subscription tiers, salaries",
     }
 
