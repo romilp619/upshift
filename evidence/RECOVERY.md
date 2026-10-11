@@ -60,3 +60,38 @@ whose blamed errors stop changing.
 | Tokens | 179,297 in / 516,167 out |
 | Cost | **$0.00** (deepseek-v4.1-flash free tier) |
 | Wall clock | 62 minutes |
+
+---
+
+# Caught by Entire's review, not by us
+
+After the migration finished at 199/199 modules and 61/62 tests, the 24 commits
+were pushed to [Trail #1](https://entire.io/gh/romilp619/python-client/trails/1)
+and Entire's `trail-review` runner evaluated the branch. It returned one
+finding, **high severity, confidence 0.85**:
+
+> This branch converts code across the repo to pydantic-v2-only APIs
+> (ConfigDict, model_config, SerializeAsAny, model_dump_json/model_validate_json,
+> model_fields, model_rebuild), but `requirements.txt` still pins
+> `pydantic~=1.10.2` (and `requirements.dev.txt` likewise). `pyproject.toml`
+> sources its dependencies dynamically from requirements.txt, so installing the
+> package as declared will pull pydantic 1.x … breaking the whole package for
+> any consumer who installs via the declared requirements.
+
+It is correct, and our own gate could not have found it. The import probe runs
+against a venv where pydantic 2.14 is already installed, so the package imports
+cleanly no matter what the manifest declares. The metric was blind to the one
+thing that breaks every downstream user.
+
+Fixed in `5eee9f4` and resolved on the trail:
+
+```
+entire trail finding resolve 01M4MTPZXMFCCGW3CCX2EZNHZS \
+  -m "Fixed in 5eee9f4: requirements.txt and requirements.dev.txt now pin pydantic>=2.9,<3."
+→ open → resolved        Open findings: 0   Resolved: 1
+```
+
+The agent now does this itself: `MigrationAgent._bump_pins` reads the declared
+pins from `requirements*.txt`, `pyproject.toml` and `setup.py` at the end of a
+run and rewrites them to the target version. Migrating the code is not
+migrating the project.

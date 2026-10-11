@@ -349,6 +349,37 @@ class MigrationAgent:
                 return rel
         return None
 
+    @obs.span(kind="TOOL", tool_name="bump_dependency_pins")
+    def _bump_pins(self, package: str = "pydantic", wanted: str = ">=2.9,<3") -> int:
+        """Migrate the project, not just the code.
+
+        An Entire trail runner flagged this on a finished migration: every file
+        used v2 APIs while requirements.txt still declared pydantic~=1.10.2, and
+        pyproject.toml takes its dependencies from there - so a fresh install
+        would pull v1 and fail on import. The import probe cannot catch it,
+        because the venv it probes already has v2 installed.
+        """
+        import re as _re
+        changed = []
+        for name, _, text in self.target.dependency_pins(package):
+            if text.startswith(f"{package}{wanted}"):
+                continue
+            path = self.target.path / name
+            body = path.read_text()
+            new = _re.sub(rf"^(\s*[\"']?){_re.escape(package)}\s*[<>=~!][^\"'\n]*",
+                          rf"\g<1>{package}{wanted}", body, flags=_re.M)
+            if new != body:
+                path.write_text(new)
+                changed.append(name)
+        if changed:
+            self.target.commit_changes(
+                f"upshift: pin {package}{wanted}\n\n"
+                f"The code is migrated; {', '.join(changed)} still declared the old "
+                f"version, so a fresh install would pull it and fail on import."
+            )
+            print(f"pins: updated {', '.join(changed)}", flush=True)
+        return len(changed)
+
     def _print(self, index: int, phase: str, rel: str, result: FileResult,
                probe: ImportResult) -> None:
         tag = {"migrated": "ok  ", "no-change": "same", "redirect": "->  ",
@@ -423,6 +454,8 @@ class MigrationAgent:
                 probe = self._import_check()
                 result = self.migrate_file(rel, index, probe, errors=errors, affected=len(mine))
                 self._print(index, "tests ", rel, result, probe)
+
+            self._bump_pins()
 
             final = self._import_check()
             tests = self._run_green()

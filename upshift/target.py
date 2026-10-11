@@ -302,13 +302,36 @@ class Target:
                 out.setdefault(target, []).append(failure)
         return out
 
+    def dependency_pins(self, package: str) -> list[tuple[str, int, str]]:
+        """(file, line number, text) for every declared pin of `package`.
+
+        Migrating the code is not migrating the project: pyproject.toml here
+        sources its dependencies from requirements.txt, so leaving the old pin
+        means a fresh install pulls the version the code no longer supports and
+        fails on import. The import probe cannot see this - the venv already
+        has the new version - which is why it took an external reviewer to
+        notice.
+        """
+        hits = []
+        for name in ("requirements.txt", "requirements.dev.txt", "pyproject.toml", "setup.py"):
+            path = self.path / name
+            if not path.exists():
+                continue
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                stripped = line.strip().strip('"\',')
+                if re.match(rf"^{re.escape(package)}\s*[<>=~!]", stripped):
+                    hits.append((name, number, stripped))
+        return hits
+
     def restore_file(self, rel: str) -> None:
         subprocess.run(["git", "checkout", "HEAD", "--", rel], cwd=self.path,
                        capture_output=True)
 
     def commit_changes(self, message: str) -> str:
         """Named to avoid the dataclass field `commit`, the pinned SHA."""
-        subprocess.run(["git", "add", "-A", "--", "src"], cwd=self.path, capture_output=True)
+        subprocess.run(["git", "add", "-A", "--", "src", "requirements.txt",
+                        "requirements.dev.txt", "pyproject.toml", "setup.py"],
+                       cwd=self.path, capture_output=True)
         subprocess.run(["git", "-c", "user.name=Upshift", "-c", "user.email=upshift@users.noreply.github.com",
                         "commit", "--no-verify", "-q", "-m", message],
                        cwd=self.path, capture_output=True)
