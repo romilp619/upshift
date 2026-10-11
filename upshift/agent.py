@@ -432,12 +432,33 @@ class MigrationAgent:
                     break
                 blame = self.target.blame_tests(failures)
                 ranked = sorted(blame.items(), key=lambda kv: -len(kv[1]))
-                pick = next(((r, f) for r, f in ranked
-                             if self.picks.get(r, 0) < MAX_PICKS_PER_FILE), None)
-                if pick is None:
-                    print("no test failure left that can be moved", flush=True)
+
+                # Follow redirects first. The agent answers NO_CHANGE_NEEDED
+                # with the file holding the root cause, and that file often is
+                # not blamed for any failing test itself - the error surfaces
+                # in its subclasses. Ranking by blame alone drops the answer:
+                # one run redirected to plugin_output.py four times and only
+                # fixed it when it happened to surface in the ranking.
+                rel = mine = None
+                while self.redirects:
+                    candidate = self.redirects.pop(0)
+                    if not (self.target.path / candidate).exists():
+                        continue
+                    if self.picks.get(candidate, 0) >= MAX_PICKS_PER_FILE:
+                        continue
+                    rel = candidate
+                    # Give it the failures of whoever pointed here when it has
+                    # none of its own, so the prompt still carries an error.
+                    mine = blame.get(candidate) or [f for fs in blame.values() for f in fs][:4]
                     break
-                rel, mine = pick
+
+                if rel is None:
+                    pick = next(((r, f) for r, f in ranked
+                                 if self.picks.get(r, 0) < MAX_PICKS_PER_FILE), None)
+                    if pick is None:
+                        print("no test failure left that can be moved", flush=True)
+                        break
+                    rel, mine = pick
                 # A file that quarantines on an unchanged error will quarantine
                 # again: same file, same failures, same prompt. Re-picking it
                 # cost ~45 minutes on plugin/capabilities.py in one run. Retry
@@ -454,11 +475,16 @@ class MigrationAgent:
                 probe = self._import_check()
                 result = self.migrate_file(rel, index, probe, errors=errors, affected=len(mine))
                 self._print(index, "tests ", rel, result, probe)
+                if result.outcome == "migrated":
+                    # The error landscape just changed, so signatures recorded
+                    # against other files are stale. Let them be retried.
+                    self.attempted = {rel: self.attempted.get(rel)}
+                    self.picks = {rel: self.picks.get(rel, 1)}
 
             self._bump_pins()
 
             final = self._import_check()
-            tests = self._run_green()
+            tests, remaining = self._run_green_detailed()
             self.metrics.finish(
                 suite_pass_rate=round(tests.pass_rate, 4),
                 modules_importable=final.ok,
@@ -466,5 +492,20 @@ class MigrationAgent:
                 green_tests=tests.passed,
                 baseline_importable=start.ok,
             )
-            print(f"final: {final.ok}/{final.total} modules, {tests.passed} green tests", flush=True)
+            print(f"\nfinal: {final.ok}/{final.total} modules importable, "
+                  f"{tests.passed} green tests passing", flush=True)
+            if final.bad or remaining:
+                # Say plainly what is still broken. "done" on the next line
+                # refers to the run finishing, not to the migration succeeding.
+                print(f"INCOMPLETE - {final.bad} module(s) still fail to import, "
+                      f"{len(remaining)} test(s) still failing:", flush=True)
+                for f in (final.failures or [])[:5]:
+                    print(f"  import  {f['module']}: {f['err'].splitlines()[0][:100]}", flush=True)
+                for f in remaining[:8]:
+                    print(f"  test    {f['module']}: {f['err'].splitlines()[0][:100]}", flush=True)
+                print("  these need a human, or another pass with more iterations", flush=True)
+            else:
+                print("COMPLETE - every module imports and every regression test passes",
+                      flush=True)
+        self.unresolved = remaining
         return self.metrics

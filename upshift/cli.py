@@ -104,7 +104,11 @@ def cmd_run(args):
                             codemod_first=not args.no_codemod)
     finally:
         obs.flush()
-    print(f"\ndone -> {metrics.path}")
+    print(f"run record -> {metrics.path}")
+    if getattr(agent, "unresolved", None):
+        # Non-zero exit: a run that leaves tests failing has not migrated the
+        # repo, and a caller scripting this should be able to tell.
+        sys.exit(f"{len(agent.unresolved)} test(s) still failing - migration incomplete")
 
 
 def cmd_report(args):

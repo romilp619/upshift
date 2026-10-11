@@ -36,6 +36,24 @@ annotate it ClassVar[...] (from typing). Otherwise give it a real type.
 give them `= None` when v1 behaviour relied on that.
 - Overriding a parent field without an annotation is an error; repeat the annotation.
 - Import ClassVar from typing, never from pydantic.
+
+Two v1 behaviours v2 removed that are best restored once, on the shared base \
+model, rather than patched at every call site:
+
+- A field annotated Optional[X] with NO default was optional in v1 and is \
+REQUIRED in v2, so existing callers that omit it now raise "Field required". \
+If you are editing the base model every other model inherits from, restore \
+the v1 default there: in __init__, for each entry of type(self).model_fields \
+that is_required() and whose annotation admits None, default it to None \
+before calling super().__init__.
+- A @staticmethod or @classmethod sharing a name with an annotated field was \
+reachable in v1 because fields stayed class attributes. In v2 the metaclass \
+removes field names from the class namespace and its __getattr__ raises \
+AttributeError. A metaclass __getattr__ is consulted ONLY when normal lookup \
+fails, so restoring a real class attribute fixes it: capture the colliding \
+descriptors in __init_subclass__ (the raw namespace still holds them) and set \
+them back in __pydantic_init_subclass__ (after fields are built). Never rename \
+the field or the method to dodge this.
 - v1 internals: Model.__fields__[name].field_info -> Model.model_fields[name] (already \
 a FieldInfo); .outer_type_ / .type_ -> .annotation; .required -> .is_required(); \
 .default stays.
