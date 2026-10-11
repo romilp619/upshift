@@ -1,1 +1,10 @@
 === no-entire start 2026-10-11 11:19:05 ===
+final: 199/199 modules, 61 green tests
+done -> /home/romil/neathack/evidence/runs/no-entire-1011-1119-1c17.jsonl
+=== graph start 2026-10-11 11:26:10 ===
+final: 199/199 modules, 61 green tests
+done -> /home/romil/neathack/evidence/runs/graph-1011-1126-fe10.jsonl
+=== graph+memory start 2026-10-11 11:34:42 ===
+final: 199/199 modules, 55 green tests
+done -> /home/romil/neathack/evidence/runs/graph+memory-1011-1134-80df.jsonl
+=== ALL DONE 2026-10-11 11:47:02 ===

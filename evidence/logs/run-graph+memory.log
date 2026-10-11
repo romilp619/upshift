@@ -1,0 +1,38 @@
+run graph+memory-1011-1134-80df: config=graph+memory
+start: 31/199 modules importable
+codemod: 11 files changed -> 31/199
+[  1] import ok   src/steamship/data/package/package.py                    imports=116/199 tests=10 att=1 rb=0 22.62s 
+[  2] import ok   src/steamship/agents/schema/action.py                    imports=135/199 tests=12 att=1 rb=0 15.41s 
+[  3] import ->   src/steamship/base/model.py                              imports=135/199 tests=12 att=1 rb=0 11.93s root cause is in src/steamship/base/package_spec.py
+[  4] import ok   src/steamship/base/package_spec.py                       imports=165/199 tests=23 att=1 rb=0 37.66s 
+[  5] import ok   src/steamship/agents/functional/functions_based.py       imports=169/199 tests=23 att=1 rb=0 18.14s 
+[  6] import ok   src/steamship/agents/tools/question_answering/prompt_database_question_answerer.py imports=176/199 tests=23 att=1 rb=0 20.78s 
+[  7] import ok   src/steamship/agents/tools/image_generation/dalle.py     imports=177/199 tests=23 att=1 rb=0 11.31s 
+[  8] import ok   src/steamship/agents/tools/image_generation/google_image_search.py imports=178/199 tests=23 att=1 rb=0 11.11s 
+[  9] import ok   src/steamship/agents/tools/image_generation/stable_diffusion.py imports=183/199 tests=23 att=1 rb=0 12.98s 
+[ 10] import ->   src/steamship/agents/llms/steamship_llm.py               imports=183/199 tests=23 att=1 rb=0 8.05s root cause is in src/steamship/plugin/capabilities.py
+[ 11] import ok   src/steamship/plugin/capabilities.py                     imports=185/199 tests=37 att=1 rb=0 45.4s 
+[ 12] import ok   src/steamship/agents/tools/classification/sentiment_analysis_tool.py imports=186/199 tests=37 att=1 rb=0 13.23s 
+[ 13] import ok   src/steamship/agents/react/react.py                      imports=189/199 tests=37 att=1 rb=0 15.8s 
+[ 14] import ok   src/steamship/agents/tools/classification/zero_shot_classifier_tool.py imports=191/199 tests=37 att=1 rb=0 12.16s 
+[ 15] import ok   src/steamship/agents/tools/conversation_starters/knock_knock_tool.py imports=193/199 tests=37 att=1 rb=0 11.3s 
+[ 16] import ok   src/steamship/agents/tools/video_generation/did_video_generator_tool.py imports=195/199 tests=37 att=1 rb=0 15.47s 
+[ 17] import ok   src/steamship/agents/basic_chat.py                       imports=196/199 tests=37 att=1 rb=0 16.11s 
+[ 18] import ok   src/steamship/agents/functions_based.py                  imports=197/199 tests=37 att=1 rb=0 17.37s 
+[ 19] import ok   src/steamship/agents/tools/classification/multiple_choice_tool.py imports=198/199 tests=37 att=1 rb=0 16.37s 
+[ 20] import ok   src/steamship/agents/tools/text_generation/custom_llm_prompt.py imports=199/199 tests=37 att=1 rb=0 16.52s 
+all modules import
+[ 21] tests  ok   src/steamship/data/block.py                              imports=199/199 tests=42 att=1 rb=0 26.91s 
+[ 22] tests  ok   src/steamship/invocable/config.py                        imports=199/199 tests=47 att=1 rb=0 19.19s 
+[ 23] tests  ->   src/steamship/base/model.py                              imports=199/199 tests=47 att=1 rb=0 23.13s root cause is in tests/steamship_tests/plugin/unit/test_config_block.py
+[ 24] tests  ->   src/steamship/plugin/outputs/block_and_tag_plugin_output.py imports=199/199 tests=47 att=1 rb=0 11.22s root cause is in src/steamship/plugin/outputs/plugin_output.py
+[ 25] tests  ->   src/steamship/plugin/outputs/raw_data_plugin_output.py   imports=199/199 tests=47 att=1 rb=0 10.09s root cause is in src/steamship/plugin/outputs/plugin_output.py
+[ 26] tests  ok   src/steamship/plugin/capabilities.py                     imports=199/199 tests=48 att=1 rb=0 40.8s 
+[ 27] tests  QUAR src/steamship/plugin/capabilities.py                     imports=199/199 tests=48 att=3 rb=3 118.71s 
+[ 28] tests  ->   src/steamship/plugin/outputs/training_parameter_plugin_output.py imports=199/199 tests=48 att=1 rb=0 15.03s root cause is in src/steamship/plugin/outputs/plugin_output.py
+[ 29] tests  ->   src/steamship/plugin/outputs/train_plugin_output.py      imports=199/199 tests=48 att=1 rb=0 10.69s root cause is in src/steamship/plugin/outputs/plugin_output.py
+[ 30] tests  ok   src/steamship/plugin/outputs/plugin_output.py            imports=199/199 tests=55 att=1 rb=0 19.57s 
+no test failure left that can be moved
+final: 199/199 modules, 55 green tests
+
+done -> /home/romil/neathack/evidence/runs/graph+memory-1011-1134-80df.jsonl

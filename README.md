@@ -22,7 +22,7 @@ Target: [`steamship-core/python-client`](https://github.com/steamship-core/pytho
 | Pydantic v1 — the ceiling | 198 / 199 | 62 / 62 |
 | v2, untouched | 31 / 199 | 0 / 62 |
 | v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
-| v2 + `bump-pydantic` + **Upshift** | **RESULT_MODULES** | **RESULT_TESTS** |
+| v2 + `bump-pydantic` + **Upshift** | **199 / 199** | **61 / 62** |
 
 The codemod exits cleanly, changes 11 files, and **gains zero modules**. It does
 mechanical renames; it cannot decide that `fetch_if_exists = False` on a model
@@ -57,18 +57,20 @@ How the metric works, and the baseline measurements:
 4. **It can say "not here".** If the cause lives in another file — a base class,
    a shared model — the agent answers `NO_CHANGE_NEEDED: <path>` and the loop
    follows it.
-5. **It remembers.** Each accepted file yields one repo-specific lesson, carried
-   into later prompts and written into the commit as an `Upshift-Lesson:`
-   trailer, where Entire search can find it on the next run.
+5. **It remembers** — though on this target that did not help. Each accepted
+   file yields one repo-specific lesson, carried into later prompts and written
+   into the commit as an `Upshift-Lesson:` trailer for Entire search to find on
+   a later run. The ablation below shows it made results *worse* here; the
+   mechanism works, the premise did not hold.
 
 ## The three sponsor tools — and what each one actually does here
 
 | | Role | Evidence |
 |---|---|---|
-| **neatlogs** | Every LLM call, import check, test run, Graph query and search is a span. Token counts and cost per file come from these traces. | traces tagged by config: NEATLOGS_LINKS |
-| **Entire Graph** | Before each edit: the definitions, base classes and callers of the models in the file, plus the narrowest covering test. | 583 files, 2,118 symbols, 14,138 relations indexed |
+| **neatlogs** | Every LLM call, import check, test run, Graph query and search is a span. Token counts and cost per file come from these traces. | one trace per arm, tagged `no-entire` / `graph` / `graph+memory` |
+| **Entire Graph** | Before each edit: the definitions, base classes and callers of the models in the file, plus the narrowest covering test. | 583 files, 2,118 symbols, 14,138 relations indexed — and measured, see the ablation |
 | **Entire search** | Recall: related commits from the repo's history and from earlier Upshift runs. | finds e.g. a 2023 commit *"Fix pydantic validators"* |
-| **Entire Trails** | The migration branch is a Trail; six runners (review, risk, security, drift, confidence, summary) evaluate each push. | TRAIL_LINK |
+| **Entire Trails** | The migration branch is a Trail; six runners (review, risk, security, drift, confidence, summary) are committed to the fork's default branch and evaluate each push. | [trail #1](https://entire.io/gh/romilp619/python-client/trails/1) |
 | **cfo.ai** | Ari is connected to the agent's telemetry over MCP and builds pricing and revenue from measured cost — and caught a 2× error in our own cost reporting. | [`BUSINESS.md`](BUSINESS.md) |
 
 The chain matters more than any single tool: **Entire** tells the agent where
@@ -78,8 +80,34 @@ those costs live and turns them into a business.
 ## Ablation: does each tool earn its place?
 
 Same target, same model, same starting point. Only the context changes.
+Measured, not asserted — and the answer is not the one we wanted.
 
-ABLATION_TABLE
+| Config | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |
+|---|---|---|---|---|---|---|
+| v2, untouched | 31 / 199 | 0 | - | - | - | - |
+| `bump-pydantic` (codemod alone) | **31 / 199** | 0 | 11 changed | - | $0 | - |
+| no-entire | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 0 |
+| graph | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 1 |
+| graph+memory | **199 / 199** | 55 | 22/31 | 2.0 | $0.0000 | 3 |
+
+**Entire Graph made no difference, and memory made things worse.** Identical
+outcome with and without Graph; adding accumulated lessons cost six tests,
+five extra steps and twice the tokens.
+
+The learning curve shows why. Recalled items climbed from 7.5 to 15 per file
+while steps per file stayed flat at 2.0 — double the 1.0 of the arms without
+memory. The lessons accumulated and never paid for themselves: more context,
+not better decisions.
+
+A second data point says this is about head-room, not about Entire. The same
+ablation on `deepseek-v4.1-flash` — a weaker model that needed 15 rollbacks to
+finish — saw Graph cut rollbacks to 9. On Haiku the no-Entire arm already runs
+at **zero rollbacks**, so there is nothing left for extra context to fix.
+
+The honest reading: **when the traceback already tells the model what to do,
+more context is overhead.** Graph earns its place when the model is struggling.
+We would expect it to matter on a larger codebase, a less mechanical migration,
+or a smaller model — none of which this run tested.
 
 Reproduce:
 
@@ -93,7 +121,21 @@ python -m upshift report
 ## Failure and recovery
 
 Every rollback is recorded per file in `evidence/runs/*.jsonl` (`attempts`,
-`rollbacks`). RECOVERY_EXAMPLE
+`rollbacks`), and a worked case is in
+[`evidence/RECOVERY.md`](evidence/RECOVERY.md).
+
+On `deepseek-v4.1-flash`, `src/steamship/base/model.py` took **three attempts
+with two rollbacks**: two patches were written, verified against all 199
+modules and the regression suite, rejected and reverted; the third was kept and
+took the package from 135 to **165 importable modules**. The rejected patches
+never reached a commit.
+
+The same run quarantined `src/steamship/plugin/capabilities.py` after twelve
+rollbacks rather than shipping a change it could not justify — and still
+finished at 199/199 modules and 59/62 tests.
+
+On Haiku the no-Entire arm needed **no** rollbacks at all, so the recovery
+evidence comes from the DeepSeek run.
 
 ## What broke along the way
 
@@ -156,7 +198,10 @@ python -m upshift.mcp_server --port 8787 --api-key <secret> --allow-host <tunnel
   CLI 0.11.4. Memory here is built from Entire search plus commit trailers.
 - **One target repo.** The numbers are for one real codebase, not a benchmark
   suite.
-- **One model measured.** All runs used `deepseek-v4.1-flash`. Costs for other
-  models in `BUSINESS.md` are its measured token counts at list price.
+- **Two models measured.** `claude-haiku-5.5` for the ablation,
+  `deepseek-v4.1-flash` for an independent pass
+  (`evidence/runs/deepseek/`). Both reach 199/199 from 31/199, which is why
+  the result is credited to the harness rather than to one model. Costs for
+  other models in `BUSINESS.md` are measured token counts at list price.
 - **62 of 266 tests.** The rest need the hosted Steamship API and can't run
   offline; they're excluded as noise, not cherry-picked.

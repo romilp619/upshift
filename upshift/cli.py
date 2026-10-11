@@ -113,8 +113,10 @@ def cmd_report(args):
         sys.exit("no runs yet")
     print("## Ablation\n")
     print(report.ablation(runs))
-    print("\n## Learning curve (last run)\n")
-    print(report.curve_table(runs[-1]))
+    # The curve only means anything for an arm that actually carries memory.
+    curve_run = next((r for r in reversed(runs) if r.startswith("graph+memory")), runs[-1])
+    print(f"\n## Learning curve ({curve_run})\n")
+    print(report.curve_table(curve_run))
 
 
 def main():
