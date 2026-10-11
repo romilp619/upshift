@@ -95,3 +95,88 @@ The agent now does this itself: `MigrationAgent._bump_pins` reads the declared
 pins from `requirements*.txt`, `pyproject.toml` and `setup.py` at the end of a
 run and rewrites them to the target version. Migrating the code is not
 migrating the project.
+
+---
+
+# Clean-room verification
+
+The checks above run against the target's own venv, where pydantic 2.14 was
+installed by hand. That proves the code migrated; it does not prove the
+*package* did. So the result was reinstalled from scratch using only what it
+declares.
+
+```bash
+git clone --no-local targets/python-client cleanenv   # no venv carried over
+cd cleanenv && python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt             # declared deps only
+.venv/bin/pip install -e . --no-deps
+```
+
+`pyproject.toml` takes its dependencies from `requirements.txt`
+(`dependencies = { file = ["requirements.txt"] }`), which is exactly why the
+stale pin mattered. With the agent's own `upshift: pin pydantic>=2.9,<3`
+commit in place, the install resolves **pydantic 2.14.0**, and in that
+untouched environment:
+
+| | |
+|---|---|
+| Modules importable | **199 / 199** |
+| Green tests | **61 passed, 1 failed, 0 errors** |
+
+The pin fix was produced automatically by the run — `pins: updated
+requirements.txt, requirements.dev.txt`, committed as the last of 23 commits,
+with no manual step.
+
+## The one remaining failure
+
+`tests/steamship_tests/utils/test_static_instance_methods.py` —
+`AttributeError: name`.
+
+The test defines a model with a field and a `@staticmethod` of the same name,
+and asserts both work:
+
+```python
+class CallableFoo(CamelModel):
+    name: Optional[Callable[[Any], Any]]
+
+    @staticmethod
+    def name() -> str:
+        return "static"
+
+assert CallableFoo.name() == "static"     # the class-level staticmethod
+assert callable_foo.name() == "instance"  # the per-instance value
+```
+
+Under pydantic v1 this worked: fields stayed ordinary class attributes, so the
+`@staticmethod` named `name` remained reachable on the class.
+
+Under v2 it cannot. The metaclass removes declared fields from the class
+namespace and installs a `__getattr__` that raises for anything that is not a
+private attribute:
+
+```python
+# pydantic/_internal/_model_construction.py
+def __getattr__(self, item):
+    private_attributes = self.__dict__.get('__private_attributes__')
+    if private_attributes and item in private_attributes:
+        return private_attributes[item]
+    raise AttributeError(item)
+```
+
+Reproduced directly:
+
+```
+is 'name' a declared field?       True
+class attr 'name' in __dict__?    False
+CallableFoo.name()             -> AttributeError: name
+```
+
+So the field declaration wins and the staticmethod is gone from the class.
+This is not an incomplete migration — it is a v1 behaviour v2 deliberately
+removed. The only honest fixes are to rename one of the two, or drop the test,
+and both change the library's public surface. The agent is explicitly
+instructed never to delete a test or weaken an assertion to make a suite pass,
+so it left it alone and quarantined the file.
+
+**62/62 was never reachable.** The ceiling for a faithful migration of this
+repo is 61, and the agent reaches it.

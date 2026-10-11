@@ -329,9 +329,14 @@ class Target:
 
     def commit_changes(self, message: str) -> str:
         """Named to avoid the dataclass field `commit`, the pinned SHA."""
-        subprocess.run(["git", "add", "-A", "--", "src", "requirements.txt",
-                        "requirements.dev.txt", "pyproject.toml", "setup.py"],
-                       cwd=self.path, capture_output=True)
+        # Only paths that exist: `git add` exits 128 on an unmatched pathspec
+        # and stages nothing, so naming setup.py in a repo without one silently
+        # dropped every commit in a run.
+        paths = [n for n in ("src", "requirements.txt", "requirements.dev.txt",
+                             "pyproject.toml", "setup.py", "setup.cfg")
+                 if (self.path / n).exists()]
+        subprocess.run(["git", "add", "-A", "--", *paths],
+                       cwd=self.path, capture_output=True, check=False)
         subprocess.run(["git", "-c", "user.name=Upshift", "-c", "user.email=upshift@users.noreply.github.com",
                         "commit", "--no-verify", "-q", "-m", message],
                        cwd=self.path, capture_output=True)
