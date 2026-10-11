@@ -162,3 +162,20 @@ two of them because Ari itself raised them:
    Covered by `tests/test_mcp_server.py` (28 tests), including a regression
    test for a run that writes a summary but still has a failing test. Against
    the version that counted every finished run as a migration, 10 fail.
+
+5. **The compounding-memory moat is not supported by our own measurement.**
+   Section 3's third lever assumes that what the agent learns on one migration
+   makes the next one cheaper and more reliable. Upshift tests exactly this
+   with its `graph+memory` configuration: lessons from each accepted file are
+   carried into later prompts. In the final ablation (commit `d041a87`, see
+   the README) memory recalled 263 items and wrote 22, and changed **no**
+   decision — the same files, in the same order, with the same outcome as no
+   memory at all — while adding 87% more input tokens. On this benchmark it
+   was overhead.
+
+   That does not disprove the thesis across many customers and many
+   migrations, which was not tested. But it means the moat in section 3 is a
+   hypothesis, and the evidence in this repository does not back it. A pitch
+   should lead with outcome-guaranteed delivery and the verify-and-roll-back
+   loop, which the evidence does support, and not with accumulated learning.
+

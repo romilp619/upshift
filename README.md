@@ -79,14 +79,24 @@ How the metric works, and the baseline measurements:
 | | Role | Evidence |
 |---|---|---|
 | **neatlogs** | Every LLM call, import check, test run, Graph query and search is a span. Token counts and cost per file come from these traces. | one trace per arm, tagged `no-entire` / `graph` / `graph+memory` |
-| **Entire Graph** | Before each edit: the definitions, base classes and callers of the models in the file, plus the narrowest covering test. | 583 files, 2,118 symbols, 14,138 relations indexed — and measured, see the ablation |
-| **Entire search** | Recall: related commits from the repo's history and from earlier Upshift runs. | finds e.g. a 2023 commit *"Fix pydantic validators"* |
-| **Entire Trails** | The migration branch is a Trail; six runners (review, risk, security, drift, confidence, summary) are committed to the fork's default branch and evaluate each push. | [trail #1](https://entire.io/gh/romilp619/python-client/trails/1) |
+| **Entire Graph** | Before each edit: the definitions, base classes and callers of the models in the file, plus the narrowest covering test. | 583 files, 2,118 symbols, 14,138 relations indexed. **Measured: no change to outcome or path on this benchmark** — 27% more input, see the ablation |
+| **Entire search** | Recall for the memory arm: related commits from the repo's history and from earlier Upshift runs. | finds e.g. a 2023 commit *"Fix pydantic validators"*. **Measured with memory: no change to outcome or path** — 87% more input |
+| **Entire Trails** | The migration branch is a Trail; six runners (review, risk, security, drift, confidence, summary) are committed to the fork's default branch and evaluate each push. | [trail #1](https://entire.io/gh/romilp619/python-client/trails/1) — **the review runner found a high-severity bug the agent's own checks could not see** (a stale dependency pin); the agent now fixes it itself |
 | **cfo.ai** | Ari is connected to the agent's telemetry over MCP and builds pricing and revenue from measured cost — and caught a 2× error in our own cost reporting. | [`BUSINESS.md`](BUSINESS.md) |
 
-The chain matters more than any single tool: **Entire** tells the agent where
-to look, **neatlogs** measures what each decision cost, and **cfo.ai** reads
-those costs live and turns them into a business.
+What each tool verifiably did on this benchmark:
+
+- **neatlogs** recorded every step, and its token counts are the source of
+  every cost figure here.
+- **Entire Trails** reviewed the finished branch and caught a real bug the
+  agent's own checks were blind to. That changed the agent: dependency pins
+  are now part of every run.
+- **Entire Graph and search** were wired in and measured. On this benchmark
+  they changed nothing the agent did — the same files, in the same order, with
+  the same outcomes — and cost extra input. They are reported as overhead, not
+  as an improvement.
+- **cfo.ai** read the run costs live over MCP, built the pricing, and caught a
+  2× error in our own cost reporting.
 
 ## Ablation: does each tool earn its place?
 

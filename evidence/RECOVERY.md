@@ -6,6 +6,17 @@ is the agent's own verify-and-retry loop with nothing helping it.
 Raw record: [`runs/no-entire-1010-2157-4b95.jsonl`](runs/no-entire-1010-2157-4b95.jsonl).
 Console log: [`logs/run-no-entire.log`](logs/run-no-entire.log).
 
+> **Caveat added later.** The run documented below,
+> `no-entire-1010-2157-4b95`, predates commit `084ef6a`, which fixed a fence
+> extractor that could glue the model's explanatory prose into a file. Some of
+> its rollbacks may therefore have been the harness mangling a correct answer
+> rather than the agent making a bad edit. The rollback mechanism worked either
+> way, but for a clean example use `no-entire-1010-2358-863b` (in
+> `runs/deepseek/`), which started one minute after that fix: there
+> `src/steamship/base/model.py` took **2 attempts with 1 rollback**, and the
+> kept patch took the package from 135 to **165** importable modules. On the
+> final harness with Haiku, runs needed no rollbacks at all.
+
 ## The loop
 
 Every patch is written to disk and then judged: re-import all 199 modules and

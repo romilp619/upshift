@@ -78,6 +78,14 @@ manifest = {
 if missing:
     sys.exit(f"pass incomplete, comparison NOT updated - no finished run for: {', '.join(missing)}")
 current = pathlib.Path("evidence/ablation.json")
+import os
+if current.exists() and json.loads(current.read_text()).get("final") \
+        and os.environ.get("ABLATION_REPLACE_FINAL") != "1":
+    # The submitted comparison is frozen. A new pass still records its own
+    # manifest under evidence/ablations/, but does not replace the final one.
+    sys.exit(f"evidence/ablation.json is marked final - this pass is kept at "
+             f"{d}/ablation.json and the comparison was NOT replaced. "
+             f"Set ABLATION_REPLACE_FINAL=1 to replace it deliberately.")
 if current.exists():
     old = json.loads(current.read_text())
     keep = pathlib.Path("evidence/ablations") / f"{old.get('pass', 'pass-2026-10-11-1119')}.json"

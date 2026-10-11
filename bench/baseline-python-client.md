@@ -65,6 +65,11 @@ is built from what Entire does ship:
 | Locate | `entire graph search --query … --format agent` — Graph indexed 583 files, 2,118 symbols and 14,138 relations in 6.7 s. |
 | Review | Entire Trails with six default runners, committed to the fork's default branch. |
 
+Measured in the final ablation (commit `d041a87`): Graph context and the memory
+built from search and lessons changed no decision on this benchmark and added
+27% and 87% more input respectively. Trails is the Entire surface with a
+verified effect - its review runner found a stale dependency pin.
+
 ## Environment note
 
 The target's own venv needs `pip install --upgrade typing_extensions` after

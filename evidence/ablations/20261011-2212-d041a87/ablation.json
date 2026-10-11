@@ -8,5 +8,7 @@
     "no-entire": "no-entire-1011-2212-310b",
     "graph": "graph-1011-2220-a786",
     "graph+memory": "graph+memory-1011-2228-37ae"
-  }
+  },
+  "final": true,
+  "final_note": "Final comparison for the neatHack submission. All three arms completed (199/199, 62/62) on the identical path; Graph and memory changed no decision and are reported as overhead."
 }
