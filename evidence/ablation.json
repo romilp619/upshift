@@ -1,10 +1,12 @@
 {
-  "note": "The three arms of one ablation pass, run back to back by scripts/ablation.sh on the same harness. Only runs from the same pass are compared; later runs used a fixed harness and are not part of this comparison.",
+  "note": "The three arms of one ablation pass, run back to back on the same commit, model, starting repository and test suite.",
+  "pass": "20261011-2212-d041a87",
+  "commit": "d041a87",
   "model": "claude-haiku-5.5:free",
-  "pass_started": "2026-10-11 11:19:05",
+  "target_pin": "3bcc5d794bf40ec29fba9d661791f691ee367c55",
   "runs": {
-    "no-entire": "no-entire-1011-1119-1c17",
-    "graph": "graph-1011-1126-fe10",
-    "graph+memory": "graph+memory-1011-1134-80df"
+    "no-entire": "no-entire-1011-2212-310b",
+    "graph": "graph-1011-2220-a786",
+    "graph+memory": "graph+memory-1011-2228-37ae"
   }
 }

@@ -24,15 +24,16 @@ Target: [`steamship-core/python-client`](https://github.com/steamship-core/pytho
 | v2 + `bump-pydantic` (official codemod) | **31 / 199** | 0 / 62 |
 | v2 + `bump-pydantic` + **Upshift** | **199 / 199** | **62 / 62** |
 
-That row is one complete run. It is not every run: **3 of 11 finished runs completed the migration (27%)**. A run is
+That row is one complete run. It is not every run: **6 of 14 finished runs completed the migration (43%)**. A run is
 complete only when every module imports *and* no regression test fails — a run
 that finishes with a test still failing is incomplete, and is reported that way.
 
 The rate is not stable yet. Every run before two harness fixes (the test phase
 ignoring the agent's own redirects, and a failure that could not be traced to
 any file) stopped short of 62/62: **0 of 8**. Every run after them completed:
-**3 of 3**. Three runs is too few to call a rate. Runs now record the commit
-that produced them, so the next ones can be tied to code.
+**6 of 6**, including all three arms of the ablation below, run on commit
+`d041a87` and recorded as such. Six runs on one repository is still a small
+sample, but every run on the current harness has completed.
 
 The codemod exits cleanly, changes 11 files, and **gains zero modules**. It does
 mechanical renames; it cannot decide that `fetch_if_exists = False` on a model
@@ -89,44 +90,67 @@ those costs live and turns them into a business.
 
 ## Ablation: does each tool earn its place?
 
-Same target, same model, same starting point. Only the context changes.
-Measured, not asserted — and the answer is not the one we wanted.
+One pass, three arms, run back to back on the **same commit (`d041a87`), same
+model (`claude-haiku-5.5:free`), same starting repository (`3bcc5d7`, 31/199
+modules) and same 62-test suite.** Only the context given to the agent changes.
+Each arm's run record states the commit it ran on, and the driver refused to
+start on uncommitted code. Pass record:
+[`evidence/ablations/20261011-2212-d041a87/`](evidence/ablations/20261011-2212-d041a87/).
 
-**Read this table for what it is.** All three arms come from one pass on the
-earlier harness, before the fixes above, and **none of them completed the
-migration** — each finished with tests still failing. The comparison between
-arms is fair, because they share a harness; it is a comparison of how far each
-got, not of three successful migrations. It has not been re-run on the current
-harness.
-
-| Config | Outcome | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |
+| Config | Outcome | Modules importable | Green tests | Files migrated | LLM calls/file | Actual cost/file | Rollbacks |
 |---|---|---|---|---|---|---|---|
 | v2, untouched | - | 31 / 199 | 0 | - | - | - | - |
 | `bump-pydantic` (codemod alone) | incomplete | **31 / 199** | 0 | 11 changed | - | $0 | - |
-| no-entire | incomplete | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 0 |
-| graph | incomplete | **199 / 199** | 61 | 23/26 | 1.0 | $0.0000 | 1 |
-| graph+memory | incomplete | **199 / 199** | 55 | 22/31 | 2.0 | $0.0000 | 3 |
+| no-entire | **complete** | **199 / 199** | 62 | 22/23 | 1.0 | $0.0000 | 0 |
+| graph | **complete** | **199 / 199** | 62 | 22/23 | 1.0 | $0.0000 | 0 |
+| graph+memory | **complete** | **199 / 199** | 62 | 22/23 | 2.0 | $0.0000 | 0 |
 
-Outcome across these runs: **0 of 3 complete** (0%). A run is complete only when every module imports and no regression test fails; finishing is not the same as migrating.
+Outcome across these runs: **3 of 3 complete** (100%). A run is complete only when every module imports and no regression test fails; finishing is not the same as migrating.
 
-**Entire Graph made no difference, and memory made things worse.** Identical
-outcome with and without Graph; adding accumulated lessons cost six tests,
-five extra steps and twice the tokens.
+| | no-entire | graph | graph+memory |
+|---|---|---|---|
+| Files worked on / fixed first try | 23 / 23 | 23 / 23 | 23 / 23 |
+| LLM calls per file | 1 | 1 | 2 (adds a lesson-extraction call) |
+| Retries (rollbacks) | 0 | 0 | 0 |
+| Redirects followed | 1 | 1 | 1 |
+| Input tokens | 110,133 | 139,481 | 205,779 |
+| Output tokens | 66,699 | 64,988 | 64,578 |
+| Input tokens per step | 4,788 | 6,064 (+27%) | 8,947 (+87%) |
+| Duration | 7.5 min | 8.2 min | 10.1 min |
+| Cost at Haiku 5.5 list | $0.044 | $0.046 | $0.053 |
+| Cost at Sonnet 5.5 list | $0.89 | $0.93 | $1.06 |
+| Cost at Opus 5.5 list | $1.78 | $1.86 | $2.12 |
 
-The learning curve shows why. Recalled items climbed from 7.5 to 15 per file
-while steps per file stayed flat at 2.0 — double the 1.0 of the arms without
-memory. The lessons accumulated and never paid for themselves: more context,
-not better decisions.
+Actual cost of every arm: $0.00 (free tier). The list-price figures are the
+measured tokens priced, not invoices.
 
-A second data point says this is about head-room, not about Entire. The same
-ablation on `deepseek-v4.1-flash` — a weaker model that needed 15 rollbacks to
-finish — saw Graph cut rollbacks to 9. On Haiku the no-Entire arm already runs
-at **zero rollbacks**, so there is nothing left for extra context to fix.
+**All three completed, and all three took the identical path** — the same 23
+files in the same order with the same outcomes, every one fixed on the first
+attempt. Entire Graph context and carried-forward lessons changed no decision
+the agent made. They added input: 27% more with Graph, 87% more with Graph and
+memory (263 items recalled, 22 written — the 87% includes one extra call per
+accepted file to extract its lesson), and up to 2.6 more minutes per run.
 
-The honest reading: **when the traceback already tells the model what to do,
-more context is overhead.** Graph earns its place when the model is struggling.
-We would expect it to matter on a larger codebase, a less mechanical migration,
-or a smaller model — none of which this run tested.
+So on this target, with this model and this harness, **the extra context is
+overhead**. The traceback and the file are enough for the agent to choose
+correctly, and there was nothing left for more context to improve: the
+baseline arm already made no mistakes.
+
+### What this replaces
+
+An earlier pass — same model, older harness — reported that memory made results
+*worse* (55/62 against 61/62), and a DeepSeek pass reported that Graph cut
+rollbacks from 15 to 9. **Neither reproduces here.** Both came from harness
+versions with bugs since fixed (ignored redirects, an unattributable failure,
+and a fence extractor that mangled correct answers), and those bugs produced
+the very rollbacks and shortfalls the differences were measured in. They are
+kept under `evidence/ablations/` and `evidence/runs/pre-extractor-fix/` as
+history, not as findings.
+
+This is one run per arm. It shows the context did not change behaviour on this
+repository; it does not show it never would. A larger codebase, a less
+mechanical migration, or a weaker model could give the context something to
+do — none of those were tested.
 
 Reproduce:
 

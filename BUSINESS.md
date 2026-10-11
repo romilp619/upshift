@@ -145,18 +145,19 @@ two of them because Ari itself raised them:
      completed the migration** — every module importing and every regression
      test passing. The other 8 were incomplete.
 
-   Successful and incomplete runs are now reported separately:
+   Successful and incomplete runs are now reported separately. As of the
+   d041a87 ablation pass, 14 runs have finished:
 
    | claude-sonnet-5-5 | Per repo | 250 repos / month |
    |---|---|---|
-   | Successful migration (n=3) | **$0.93** ($0.85 – $0.94) | **$232** if every run succeeds |
+   | Successful migration (n=6) | **$0.93** ($0.85 – $1.06) | **$232** if every run succeeds |
    | Incomplete run (n=8) | $0.95 ($0.74 – $1.51) | — |
-   | Per success, paying for failed attempts (27% rate) | **$3.57** | **$892** at the observed rate |
+   | Per success, paying for failed attempts (43% rate) | **$2.26** | **$566** at the observed rate |
 
-   For pricing, the observed-rate figure is the conservative one. It is
-   pessimistic in one respect: all 8 incomplete runs came before two harness
-   fixes, and all 3 runs after them completed — but three runs is too few to
-   plan on. Even at $3.57, inference is under 0.5% of a $750 price.
+   The observed rate is conservative: all 8 incomplete runs predate two
+   harness fixes, and all 6 runs since them completed. Even at $2.26,
+   inference is about 0.3% of a $750 price. These figures move as runs are
+   added; the `cost_projection` tool always reports the current ones.
 
    Covered by `tests/test_mcp_server.py` (28 tests), including a regression
    test for a run that writes a summary but still has a failing test. Against

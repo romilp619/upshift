@@ -25,3 +25,15 @@ Two of the three successful runs therefore used code that did not exist in the
 repository when they ran. They are kept because the fix they used is the one
 that was then committed unchanged, but the run that best supports the headline
 is `graph-1011-1454-6bde`.
+
+## Recorded, not inferred
+
+From `e276718` on, each run summary carries its harness commit. These three
+form the ablation pass `20261011-2212-d041a87`, run by `scripts/ablation.sh`,
+which refused to start on uncommitted code and checked each summary's commit:
+
+| Run | Outcome | Started | Harness (recorded) |
+|---|---|---|---|
+| `no-entire-1011-2212-310b` | **complete 62/62** | 22:12 | `d041a87` |
+| `graph-1011-2220-a786` | **complete 62/62** | 22:20 | `d041a87` |
+| `graph+memory-1011-2228-37ae` | **complete 62/62** | 22:28 | `d041a87` |

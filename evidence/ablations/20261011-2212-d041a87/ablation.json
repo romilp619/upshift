@@ -1,0 +1,12 @@
+{
+  "note": "The three arms of one ablation pass, run back to back on the same commit, model, starting repository and test suite.",
+  "pass": "20261011-2212-d041a87",
+  "commit": "d041a87",
+  "model": "claude-haiku-5.5:free",
+  "target_pin": "3bcc5d794bf40ec29fba9d661791f691ee367c55",
+  "runs": {
+    "no-entire": "no-entire-1011-2212-310b",
+    "graph": "graph-1011-2220-a786",
+    "graph+memory": "graph+memory-1011-2228-37ae"
+  }
+}

@@ -80,7 +80,7 @@ def learning_curve(files: list[dict], bucket: int = 10) -> list[dict]:
 
 def ablation(run_ids: list[str]) -> str:
     lines = [
-        "| Config | Outcome | Modules importable | Green tests | Files migrated | Steps/file | Cost/file | Rollbacks |",
+        "| Config | Outcome | Modules importable | Green tests | Files migrated | LLM calls/file | Actual cost/file | Rollbacks |",
         "|---|---|---|---|---|---|---|---|",
         "| v2, untouched | - | 31 / 199 | 0 | - | - | - | - |",
         "| `bump-pydantic` (codemod alone) | incomplete | **31 / 199** | 0 | 11 changed | - | $0 | - |",
@@ -96,7 +96,10 @@ def ablation(run_ids: list[str]) -> str:
             f"| **{summary.get('modules_importable', 0)} / "
             f"{summary.get('modules_total', 0) or 199}** "
             f"| {summary.get('green_tests', 0)} "
-            f"| {summary.get('files_migrated', 0)}/{summary.get('files_total', 0)} "
+            # Count from file records, excluding the codemod pre-pass, which is
+            # recorded as a file entry but is not a file the agent worked on.
+            f"| {sum(f['outcome'] == 'migrated' for f in files)}/"
+            f"{sum(f['outcome'] != 'codemod' for f in files)} "
             f"| {stats['steps']} "
             f"| ${stats['cost']:.4f} "
             f"| {summary.get('total_rollbacks', 0)} |"
