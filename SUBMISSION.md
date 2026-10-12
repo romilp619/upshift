@@ -231,7 +231,7 @@ attempt gained 30 modules (`att=2 rb=1` in
 > **Team:** RootKit (solo)
 > **Project:** Upshift — an agent that finishes migrations the official codemod can't
 > **Repo:** https://github.com/romilp619/upshift
-> **Demo:** «video link»
+> **Demo:** https://youtu.be/5khq8cNaMT4
 >
 > Codemod: 31/199 modules. Upshift: 199/199 modules, 62/62 tests. #neatHack
 
