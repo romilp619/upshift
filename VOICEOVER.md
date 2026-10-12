@@ -105,7 +105,9 @@ dependencies, the result is still one ninety-nine and sixty-two.
 
 ---
 
-### Clip 6 — cfo.ai · 2:45–3:10
+### Clip 6 — cfo.ai · 2:45–3:13
+
+*Screen: DEMOMCP "Connected" → Ari's answer → the Migration runway page.*
 
 cfo dot ai reads those same run costs live, over MCP. Not a spreadsheet — the
 agent's own telemetry.
@@ -113,12 +115,13 @@ agent's own telemetry.
 The first thing it did was catch a two-times error in our own unit economics.
 
 A successful migration costs about ninety-three cents at Sonnet prices. Two
-dollars twenty-six if you pay for the failed attempts too. Against a migration
-that costs a team days.
+dollars twenty-six if you pay for the failed attempts too — against a
+migration that costs a team days.
 
----
+And it built this. A twelve-month runway, with the inference line taken from
+the live connection, not an estimate.
 
-### Clip 7 — the ablation · 3:10–3:25 *(drop this first if long)*
+### Clip 7 — the ablation · 3:13–3:28 *(drop this first if long)*
 
 We also measured whether extra context helped. Entire Graph, and memory carried
 between files.
@@ -128,7 +131,7 @@ tokens. On this benchmark it was overhead, so that is what our README says.
 
 ---
 
-### Clip 8 — the repo · 3:25–3:35
+### Clip 8 — the repo · 3:28–3:38
 
 Upshift. Migrations that finish, with the evidence to check.
 

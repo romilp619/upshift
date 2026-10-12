@@ -228,7 +228,7 @@ attempt gained 30 modules (`att=2 rb=1` in
 
 ## 5. Submission — quote the official neatlogs post on X
 
-> **Team:** «team name»
+> **Team:** RootKit (solo)
 > **Project:** Upshift — an agent that finishes migrations the official codemod can't
 > **Repo:** https://github.com/romilp619/upshift
 > **Demo:** «video link»
