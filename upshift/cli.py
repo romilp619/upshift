@@ -85,8 +85,12 @@ def cmd_baseline(args):
 
 def cmd_run(args):
     missing = CONFIG.missing()
-    if missing:
-        sys.exit(f"missing env: {', '.join(missing)} (put them in .env)")
+    if "ANTHROPIC_API_KEY" in missing:
+        sys.exit("missing env: ANTHROPIC_API_KEY (the model key; put it in .env)")
+    if "NEATLOGS_API_KEY" in missing:
+        # Tracing is how this project is observed, but a reviewer reproducing a
+        # run should not need a neatlogs account to do it.
+        print("NEATLOGS_API_KEY not set: running without neatlogs tracing", flush=True)
     target = _load_target(args.target)
     if args.workdir:
         # Isolated run: a private worktree on a per-run branch. The shared clone

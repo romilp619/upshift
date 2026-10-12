@@ -6,9 +6,11 @@
 
 targets:
   - name: python-client
-    url: https://github.com/steamship-core/python-client
-    # 62b3f96 (upstream HEAD) plus .entire/ only - source is identical, so the
-    # baselines are unchanged, and the Entire config survives every reset.
+    # The fork, not upstream: the pinned commit below lives only there. It is
+    # upstream steamship-core/python-client 62b3f96 plus .entire/ only - the
+    # source is identical, so the baselines are unchanged, and the Entire
+    # config survives every reset.
+    url: https://github.com/romilp619/python-client
     commit: 3bcc5d794bf40ec29fba9d661791f691ee367c55
     migration: pydantic-v1-to-v2
     # Run from the target's own venv so its pinned deps stay isolated from ours.
