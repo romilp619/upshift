@@ -9,3 +9,4 @@ evidence/runs/*.raw.jsonl
 # run logs are evidence - keep them
 #evidence/logs/*.log
 workspaces/
+upshift/dashboard/
