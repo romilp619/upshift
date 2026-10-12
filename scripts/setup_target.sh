@@ -31,7 +31,9 @@ echo "installing the target's own dependencies (a few minutes the first time) ..
 $pip install --quiet --upgrade pip
 $pip install --quiet -r "$T/requirements.txt" -r "$T/requirements.dev.txt"
 $pip install --quiet --no-deps -e "$T"
-# Then upgrade to Pydantic v2 - this is the break Upshift repairs.
+# Then upgrade to Pydantic v2 - this is the break Upshift repairs. pip will warn
+# that steamship requires pydantic~=1.10.2: expected, that pin is the old code.
 $pip install --quiet "pydantic==2.14.0" "bump-pydantic==0.8.0"
+echo "(a pip warning that steamship requires pydantic~=1.10.2 is expected: that is the break Upshift repairs)"
 
 echo "ready: $T at ${PIN:0:7}, pydantic $("$T/.venv/bin/python" -c 'import pydantic; print(pydantic.VERSION)')"

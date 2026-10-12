@@ -43,6 +43,79 @@ the attribute is used. That gap is the product.
 How the metric works, and the baseline measurements:
 [`bench/baseline-python-client.md`](bench/baseline-python-client.md).
 
+## Verify it yourself
+
+Every command below was run from a fresh clone (Linux/WSL, Python 3.10). Steps
+1 to 3 need **no accounts and no API keys**.
+
+**1. Install** (about a minute)
+
+```bash
+git clone https://github.com/romilp619/upshift && cd upshift
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**2. Check the code and the recorded evidence** (seconds)
+
+```bash
+python -m pytest tests -q        # 28 passed
+python -m upshift report         # every recorded run; 6 of 14 complete; the codemod alone at 31/199
+python scripts/incident.py       # the incident found in neatlogs: 7 redirects -> 1, 56/62 -> 62/62 tests
+```
+
+**3. Measure the migration yourself** (about a minute; no model is called)
+
+```bash
+bash scripts/setup_target.sh     # clones the target repo and builds its venv on Pydantic v2
+python scripts/verify_result.py  # imports all 199 modules and runs the 62 tests, before and after
+```
+
+Expected output:
+
+```
+start   modules importable: 31/199    regression tests: 0/62 passing
+result  modules importable: 199/199   regression tests: 62/62 passing
+modules 31/199 -> 199/199, tests 0 -> 62: VERIFIED
+```
+
+`setup_target.sh` shows a pip warning that steamship requires `pydantic~=1.10.2`.
+That is expected: it is the break Upshift repairs. The migrated code is the
+branch [`upshift/verified`](https://github.com/romilp619/python-client/tree/upshift/verified)
+on the target's fork; its commits show every file the agent changed and why.
+
+**4. Run the agent yourself** (about 7 minutes; needs a model key)
+
+```bash
+cp .env.example .env             # set ANTHROPIC_API_KEY; NEATLOGS_API_KEY is optional
+python -m upshift run --target python-client --config no-entire --workdir /tmp/upshift-run
+```
+
+It prints one line per file and ends with `COMPLETE`, or `INCOMPLETE` plus the
+exact modules and tests still failing. It works in its own git worktree, so the
+target clone is left as it was. For Token Harbor or another Anthropic-compatible
+gateway, set `UPSHIFT_BASE_URL` and `UPSHIFT_MODEL` in `.env` (the headline runs
+used `claude-haiku-5.5:free`).
+
+**5. The sponsor tools**
+
+- **neatlogs:** with `NEATLOGS_API_KEY` set, each run appears as a trace (workflow
+  `upshift`) at app.neatlogs.com, with one span per file, import probe and test run.
+- **Entire:** [Trail #1](https://entire.io/gh/romilp619/python-client/trails/1)
+  holds the review finding and its fix. The `graph` and `graph+memory` configs use
+  the Entire CLI: `ENTIRE_TOKEN_STORE=file entire login`, then
+  `python -m upshift setup --target python-client` to index Graph.
+- **cfo.ai:** the analysis is in [BUSINESS.md](BUSINESS.md). The live endpoint
+  cfo.ai reads needs a private key, so run the same server locally and ask it a
+  question:
+
+  ```bash
+  python -m upshift.mcp_server --host 127.0.0.1 --port 8787 --api-key test &
+  curl -s -X POST http://127.0.0.1:8787/mcp -H "X-API-Key: test" \
+    -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"migration_results","arguments":{}}}'
+  ```
+
 ## How it works
 
 ```mermaid
@@ -239,7 +312,8 @@ put a false number in front of you, and each was found by running it:
 ```bash
 git clone https://github.com/romilp619/upshift && cd upshift
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # NEATLOGS_API_KEY and a model key
+cp .env.example .env        # a model key; NEATLOGS_API_KEY optional
+bash scripts/setup_target.sh   # the target repo and its Pydantic v2 venv
 ENTIRE_TOKEN_STORE=file entire login
 
 python -m upshift setup    --target python-client
