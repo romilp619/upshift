@@ -11,7 +11,7 @@ ablation measured that they did not.
 | Rule | Evidence | Status |
 |---|---|---|
 | **The agent improved** — a run before a change and after, with numbers | One change, everything else held: Haiku, `graph`, start 31/199. **Before** the harness fix, `graph-1011-1356-94de`: 56/62 tests, incomplete, 29 steps, 7 redirects ignored. **After**, `graph-1011-1454-6bde`: **62/62, complete**, 23 steps, 1 redirect followed. Both in `evidence/runs/`; provenance in `evidence/runs/PROVENANCE.md`. | done |
-| **You used neatlogs** — trace links or screenshots | The two runs above (11 Oct, ~13:56 and ~14:54 IST, tag `graph`) and the final ablation pass (11 Oct, 22:12 / 22:20 / 22:28, tags `no-entire` / `graph` / `graph+memory`) | **you: screenshot** |
+| **You used neatlogs** — and, per the 11 Oct brief, **Incidents**: show how it identified and resolved an incident the agent ran into | The ignored-redirect incident: `graph-1011-1356-94de` (56/62, reported done) → fix `eb61d4a` → `graph-1011-1454-6bde` (62/62). Recording instructions and both honest variants in §3a. Traces: 11 Oct ~13:56 / ~14:54 IST and the ablation pass 22:12 / 22:20 / 22:28 | **you: record §3a** |
 | **You used Entire** — checkpoints or entire-graph output | Trail #1 on `romilp619/python-client`, where the review runner raised a high-severity finding that was fixed and resolved; Graph index (583 files, 2,118 symbols, 14,138 relations); 24-commit migration branch | done |
 | **You used cfo.ai** — pricing, costs, revenue, runway | `BUSINESS.md` — cost, pricing, recurring revenue and a 12-month runway model, all from Ari over MCP, plus five recorded corrections. Ari built a live model in the cfo.ai workspace from the measured $0.00 inference cost. | done |
 | **The agent recovers from failures** | `evidence/RECOVERY.md`: `base/model.py` rolled back once then kept (+30 modules); the Trails finding that led the agent to fix dependency pins itself | done |
@@ -56,55 +56,118 @@ in plaintext, and Entire syncs checkpoints to `origin`, which is public.
 
 ---
 
-## 3. Demo video — 3 minutes
+## 3. Demo video — ONE video, ~3:30
 
-Record the screen; talk over it. Every line maps to a finding above.
+Organisers' brief (11 Oct): one video covering **(a)** the problem the agent
+solves, **(b)** how cfo.ai and Entire were part of the project, and **(c)** how
+**neatlogs Incidents** was used to identify and resolve the incidents the agent
+ran into. (c) is new and is the segment most likely to be scored directly —
+budget the most time for it.
 
-**0:00–0:20 — The problem.** *(finding 1)*
+Record the screen; talk over it. Every line maps to a finding in section 2.
+
+**0:00–0:25 — The problem.** *(finding 1)*
 Run `upshift baseline`.
 > "Pydantic v2 broke every v1 codebase. The official fix is a codemod. On this
 > real repo — 199 modules — it changes 11 files, and the number of modules that
 > import goes from 31 to 31."
 
-**0:20–0:40 — Why.**
+**0:25–0:45 — Why.**
 The `fetch_if_exists = False` error, then the agent's `ClassVar[bool]` diff.
 > "A codemod renames things. It can't tell this is a class flag rather than a
 > field. That takes reading the code."
 
-**0:40–1:25 — The agent running.** *(findings 2, 5)*
+**0:45–1:25 — The agent running.** *(findings 2, 5)*
 `upshift run --target python-client --config no-entire`, sped up. Stop on:
 - a `->` line: *"Here it worked out the real cause was in a different file, and
   went there instead."*
 - the `final` / `COMPLETE` lines: *"199 of 199 modules, 62 of 62 tests."*
 > "Every edit is checked against the whole package and the test suite. If the
-> numbers don't improve, the edit is rolled back and it tries again with the new
-> error."
-Show `evidence/logs/deepseek/run-no-entire.log`, the `base/model.py` line with
-`att=2 rb=1`: *"Here: rejected once, kept the second time, 30 more modules."*
+> numbers don't improve, the edit is rolled back and it tries again."
 
-**1:25–1:55 — Is it real?** *(findings 3, 6)*
-> "Then we installed it fresh, from its own declared dependencies only. Still
-> 199 and 62."
+**1:25–2:20 — neatlogs Incidents: the bug that nearly shipped as "done".**
+*(the required segment — see section 3a for the click path and both variants)*
+Screen: neatlogs → **Incidents** → the incident → **Evidence** → **Recommended
+action** → then the fix and the after-run.
+> "While we were building this, our own agent had an incident — and neatlogs is
+> where we saw it. A run finished, printed done, 199 of 199 modules importing.
+> Six tests were still failing.
+>
+> In the trace you can see why. The agent kept answering with the same file and
+> saying 'no change needed, the real cause is somewhere else' — four times. The
+> harness honoured that redirect while fixing imports and silently dropped it
+> while fixing tests, so the agent was sent back to the same dead end over and
+> over.
+>
+> That's the incident: a loop you cannot see from the exit code. We fixed the
+> redirect handling, and we made the agent refuse to say 'complete' while a
+> single test fails. Same model, same repo, same starting commit: 29 steps and
+> 56 of 62 tests before, 23 steps and 62 of 62 after."
+
+**2:20–2:45 — Entire, and is it real?** *(findings 6, 3)*
 Trail #1 on entire.io, the resolved finding:
-> "And Entire's review runner caught something our checks couldn't: the code was
-> migrated but `requirements.txt` still said pydantic 1. Anyone installing it
-> would have got a broken package. The agent fixes that itself now."
+> "Entire's review runner caught something our own checks couldn't: the code was
+> migrated, but `requirements.txt` still pinned pydantic 1. Anyone installing it
+> would have got a broken package. The agent fixes pins itself now — and
+> installed fresh from its own declared dependencies, the result is still 199
+> and 62."
 
-**1:55–2:20 — What didn't help.** *(finding 7)*
+**2:45–3:10 — cfo.ai.** *(findings 8, 9)*
+Ari answering over MCP; the runway model in the cfo.ai workspace.
+> "cfo.ai reads those same run costs live over MCP. It caught a 2x error in our
+> own unit economics. A successful migration is about 93 cents at Sonnet
+> prices — $2.26 if you pay for the failed attempts too — against a migration
+> that costs a team days."
+
+**3:10–3:25 — What didn't help.** *(finding 7 — cut this first if over time)*
 The ablation table.
-> "We also gave the agent Entire Graph context, and memory carried between
-> files. Same files, same order, same result — and up to 87% more tokens. On
-> this benchmark that's overhead, so that's how we report it."
+> "We also measured Entire Graph context and memory carried between files. Same
+> files, same order, same result, up to 87% more tokens. On this benchmark
+> that's overhead, so that's how we report it."
 
-**2:20–2:50 — cfo.ai.** *(findings 8, 9)*
-Ari answering over MCP; neatlogs trace for a run.
-> "neatlogs records every step, and cfo.ai reads those costs live over MCP. It
-> caught a 2× error in our own cost numbers. A successful migration is about 93
-> cents at Sonnet prices — $2.26 if you count failed attempts — against a
-> migration that costs a team days."
-
-**2:50–3:00 — Close.**
+**3:25–3:30 — Close.**
 > "Upshift: migrations that finish, with the evidence to check."
+
+---
+
+## 3a. Recording the neatlogs Incidents segment
+
+Do this before anything else — it is the one part of the video that cannot be
+reconstructed from the repo.
+
+**Click path:** neatlogs → your project → **incidents** (left sidebar) → filter
+**All** → open the incident → tabs **Overview / Evidence / Investigations /
+Activity**. The right rail shows Raised → Investigated → Resolved, affected
+traces and priority. The footer has **Copy context**, **Investigate further**,
+**Ask AI about this** and **Fix in … (Claude Code)**.
+
+**Variant A — neatlogs already raised an incident on our traces.** Film it as
+it stands: list → Overview ("What we know so far") → Evidence tab (the numbered
+findings with their source traces) → Recommended action → `Fix in Claude Code`.
+Then cut to the fix and the after-run numbers. Say "neatlogs raised this".
+
+**Variant B — the Incidents list is empty.** Do not imply otherwise. Open the
+failing run's trace (`graph-1011-1356-94de`, 11 Oct ~13:56 IST, tag `graph`),
+press **Investigate further** / **Ask AI about this** on it and film the
+investigation being produced live. Say "we pointed neatlogs' investigation at
+the trace", not "neatlogs raised it". The before/after numbers are the proof of
+resolution either way, and they are real in both variants.
+
+**The incident, in repo terms** — have these open in a second window:
+
+| | |
+|---|---|
+| Symptom | `graph-1011-1356-94de` reported done: 199/199 modules, **56/62 tests** |
+| Signal in the trace | `NO_CHANGE_NEEDED: …/plugin_output.py` emitted 4x, redirect dropped each time, agent re-sent to the same file |
+| Root cause | redirects were followed in the import phase only; the test phase ignored them |
+| Fix | commit `eb61d4a`; plus `migration_status()` will not say complete while any test fails, with a regression test in `tests/test_mcp_server.py` |
+| Resolved, measured | `graph-1011-1454-6bde`: **62/62, complete**, 23 steps, 1 redirect followed |
+| Files | both runs in `evidence/runs/`; `evidence/runs/PROVENANCE.md` |
+
+Second incident available if there is room: `base/model.py` was edited, the
+numbers did not improve, the edit was rolled back, retried, and the second
+attempt gained 30 modules (`att=2 rb=1` in
+`evidence/logs/deepseek/run-no-entire.log`).
 
 ---
 
@@ -124,11 +187,15 @@ Ari answering over MCP; neatlogs trace for a run.
 > It's a class flag, not a field. Knowing that means reading the code. One file,
 > +85 modules importing. #neatHack
 
-**Post 3 — the bug the agent taught me**
-> My agent kept returning the file that was breaking the build with "no changes
-> needed". Four times.
+**Post 3 — the incident** (screenshot: the neatlogs incident / trace)
+> My agent printed "done". 199/199 modules importing. Six tests still failing.
 >
-> I'd never shown it the error. One line in the prompt fixed it. #neatHack
+> @neatlogs is where I saw why: it kept being sent back to the same file after
+> saying "the real cause is elsewhere". Four times. The redirect was honoured
+> while fixing imports and dropped while fixing tests.
+>
+> Fixed: 29 steps → 23, 56/62 → 62/62. And "done" can't be printed while a test
+> fails any more. #neatHack
 
 **Post 4 — Entire caught what I missed** (screenshot: the resolved Trail finding)
 > Migration done: 199/199 modules, tests green. Pushed it to an @EntireHQ Trail.
