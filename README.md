@@ -45,15 +45,44 @@ How the metric works, and the baseline measurements:
 
 ## How it works
 
+```mermaid
+flowchart TD
+    start(["Repo written for Pydantic v1,<br/>installed with Pydantic v2"]) --> codemod["Run bump-pydantic<br/>the mechanical renames"]
+    codemod --> imports{"Phase 1<br/>Does every module import?"}
+    imports -- "no" --> pickI["Pick the next file<br/>a redirect first, else the file<br/>behind the most import failures"]
+    imports -- "yes" --> tests{"Phase 2<br/>Does every selected<br/>regression test pass?"}
+    tests -- "no" --> pickT["Pick the next file<br/>a redirect first, else the file<br/>behind the most failing tests"]
+    tests -- "yes" --> pins["Pin pydantic to 2.x<br/>in requirements"]
+
+    pickI --> ask
+    pickT --> ask
+
+    subgraph repair ["Repair and verify one file · up to 3 attempts"]
+        ask["Ask the model, showing the file<br/>and the real traceback"] --> answer{"What does<br/>it return?"}
+        answer -- "NO_CHANGE_NEEDED:<br/>the cause is in another file" --> redirect["Queue that file<br/>as the next pick"]
+        answer -- "a patch" --> guard{"Guard: no test skipped,<br/>deleted or weakened?"}
+        guard -- "no" --> retry["Roll back<br/>retry with the reason"]
+        guard -- "yes" --> verify["Apply it, re-import every module,<br/>run the regression tests"]
+        verify --> gate{"Nothing fell, and<br/>something improved?"}
+        gate -- "no" --> retry
+        retry -- "attempts left" --> ask
+        retry -- "3 attempts used" --> skip["Skip the file"]
+        gate -- "yes" --> keep["Keep it<br/>commit with before and after numbers"]
+    end
+
+    redirect --> next(("next"))
+    keep --> next
+    skip --> next
+    next -. "in phase 1" .-> imports
+    next -. "in phase 2" .-> tests
+
+    pins --> final{"Every module imports and<br/>no selected test fails?"}
+    final -- "yes" --> complete(["COMPLETE"])
+    final -- "no" --> incomplete(["INCOMPLETE<br/>lists exactly what still fails"])
 ```
- bump-pydantic ──▶ import every module ──▶ blame each failure on a file
-                          ▲                          │
-                          │                          ▼
-                   keep or roll back ◀── patch ◀── context
-                   (imports must rise,          ├─ Entire Graph: definitions & callers
-                    tests must not fall)        ├─ Entire search: related repo history
-                                                └─ lessons learned earlier this run
-```
+
+Each phase ends when its check passes, or when no file is left that can still
+move a number; the run then says COMPLETE or INCOMPLETE and lists what still fails.
 
 1. **The interpreter drives the work.** Every module is imported in a fresh
    process; each failure is blamed on the deepest in-repo frame of its
