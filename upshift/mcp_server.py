@@ -390,10 +390,12 @@ def main() -> None:
     security = None
     if args.allow_host:
         from mcp.server.transport_security import TransportSecuritySettings
-        security = TransportSecuritySettings(
-            allowed_hosts=["127.0.0.1", "localhost", f"127.0.0.1:{args.port}", *args.allow_host],
-            allowed_origins=["*"],
-        )
+        # Both bare and :port forms - a client sends the port in the Host
+        # header, and a missing variant is rejected as 421 Misdirected Request.
+        hosts = []
+        for h in ["127.0.0.1", "localhost", *args.allow_host]:
+            hosts += [h, f"{h}:{args.port}"]
+        security = TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=["*"])
 
     if not args.api_key:
         server.run(
