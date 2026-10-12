@@ -105,14 +105,71 @@ against $30k for one migration per repo.
 
 ## 4. Runway
 
-**Not yet from cfo.ai — Ari's answers above cover cost, pricing and recurring
-revenue, but not runway.** To be replaced with Ari's answer to:
+From cfo.ai. Ari read the measured inference cost through the MCP connection —
+it used the recorded **$0.00 free-tier cost per migration rather than an
+estimate** — and built a live model in the workspace ("Migration runway",
+Main Scenario) with customer-acquisition cohorts and an operating calendar,
+not just a chat answer.
 
-> *"Model 12 months of runway. Solo founder, no salary for the first 6 months,
-> $0 revenue today, running on a free inference tier. Costs are inference
-> (use unit_economics), CI, and the Entire and neatlogs subscriptions. Using
-> your $750 onboarding and $149/repo/month Keep-current pricing, how many
-> customers and repos reach break-even, and in which month?"*
+**Inputs given**
+
+| | |
+|---|---|
+| Opening business cash | $0 |
+| Founder monthly draw | $0 |
+| CI | $10/month |
+| neatlogs | $0 (free tier) |
+| Entire | $0 for 6 months, then $200/month — an unverified placeholder; Entire's paid pricing is not public |
+| Inference per migration | $0.00, measured |
+| New customers | 1/month for 6 months, then 2/month |
+| Repos per customer | 5 at landing, growing with the account |
+| Pricing | $750 onboarding, $149/repo/month |
+
+**Base forecast, October 2026 – September 2027**
+
+| Month | Customers | Active repos | Subscription revenue | Cash costs |
+|---|---|---|---|---|
+| Oct 2026 | 1 | 5 | $745 | $10 |
+| Nov 2026 | 2 | 10 | $1,490 | $10 |
+| Dec 2026 | 3 | 16 | $2,384 | $10 |
+| Jan 2027 | 4 | 23 | $3,427 | $10 |
+| Feb 2027 | 5 | 31 | $4,619 | $10 |
+| Mar 2027 | 6 | 40 | $5,960 | $10 |
+| Apr 2027 | 8 | 55 | $8,195 | $210 |
+| May 2027 | 10 | 71 | $10,579 | $210 |
+| Jun 2027 | 12 | 89 | $13,261 | $210 |
+| Jul 2027 | 14 | 109 | $16,241 | $210 |
+| Aug 2027 | 16 | 131 | $19,519 | $210 |
+| Sep 2027 | 18 | 155 | $23,095 | $210 |
+
+**Break-even: October 2026 — the first month.** Ari separated two definitions
+and both land in month 1:
+
+- **Monthly cash break-even**, counting the $750 onboarding fee: the first
+  customer alone covers it.
+- **Recurring-only break-even**, where $149/repo/month must cover costs with no
+  new sales: one customer on 5 repos is $745/month against $10 of cash cost.
+
+In Ari's words, *"you do not need ongoing onboarding sales to cover these
+modeled costs."* Month 1 generates about **$4,485 of net cash** against the
+base-case $10 CI cost.
+
+**There is no runway question in the usual sense.** With $0 opening cash, no
+salary and essentially no fixed costs, the business cannot run out of money —
+it is cash-positive from the first paying customer. The real risk is not
+burn, it is whether anyone pays $750 at all.
+
+**What this model assumes, and does not prove**
+
+- The free inference tier stays available for all 12 months. Ari flagged this
+  as an assumption rather than a guarantee, and it is the single largest
+  unpriced risk: at list rates the cost becomes $2.26 per successful migration
+  (section 5), which is still under 0.5% of a $750 price but no longer zero.
+- Entire at $200/month is a placeholder.
+- Zero churn, and no cost for human review of the agent's pull requests.
+- Customer acquisition of 1–2 per month is an assumption with no evidence
+  behind it. Nothing in this repository demonstrates demand; it demonstrates
+  that the migration works.
 
 ## 5. What has changed since Ari answered
 
