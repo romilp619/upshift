@@ -211,10 +211,12 @@ python -m upshift run      --target python-client --config graph+memory
 python -m upshift report
 ```
 
-Any Anthropic-compatible endpoint works via `UPSHIFT_BASE_URL`; the runs here
-used `deepseek-v4.1-flash` on the free tier through Token Harbor. Claude-only
-request features (adaptive thinking, effort, prompt caching) are sent only to
-Claude models.
+Any Anthropic-compatible endpoint works via `UPSHIFT_BASE_URL`. The headline
+runs here used `claude-haiku-5.5:free` through Token Harbor: the final ablation
+(`evidence/ablation.json`) and the recorded demo run of 12 Oct. An earlier,
+independent pass used `deepseek-v4.1-flash`, also on the free tier
+(`evidence/runs/deepseek/`). Claude-only request features (adaptive thinking,
+effort, prompt caching) are sent only to Claude models.
 
 To let cfo.ai read the telemetry:
 
