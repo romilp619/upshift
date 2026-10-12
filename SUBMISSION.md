@@ -34,7 +34,8 @@ in plaintext, and Entire syncs checkpoints to `origin`, which is public.
 3. **Claude:** `entire enable -y --agent claude-code` in `~/neathack`, attach
    this session with `entire session attach <session-id>`, push.
 4. Check the checkpoint is visible on entire.io for `romilp619/upshift`.
-5. Stop the cloudflared tunnel and the MCP server after the demo is recorded.
+5. Terminate the AWS instance after the demo is recorded — one instance per
+   user is allowed. See [`DEPLOY.md`](DEPLOY.md).
 
 ---
 
