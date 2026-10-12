@@ -247,10 +247,14 @@ independent pass used `deepseek-v4.1-flash`, also on the free tier
 (`evidence/runs/deepseek/`). Claude-only request features (adaptive thinking,
 effort, prompt caching) are sent only to Claude models.
 
-To let cfo.ai read the telemetry:
+cfo.ai reads the telemetry from the MCP server, which runs on AWS at
+`https://44-198-170-139.sslip.io/mcp`: an EC2 instance with Caddy in front for
+HTTPS (a Let's Encrypt certificate via sslip.io), no tunnel. Setup, operation and
+shutdown are in [DEPLOY.md](DEPLOY.md). The server itself listens only on
+localhost, and Caddy proxies to it:
 
 ```bash
-python -m upshift.mcp_server --port 8787 --api-key <secret> --allow-host <tunnel-host>
+python -m upshift.mcp_server --host 127.0.0.1 --port 8787 --api-key <secret> --allow-host <your-public-hostname>
 ```
 
 ## Layout
