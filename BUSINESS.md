@@ -220,7 +220,28 @@ two of them because Ari itself raised them:
    test for a run that writes a summary but still has a failing test. Against
    the version that counted every finished run as a migration, 10 fail.
 
-5. **The compounding-memory moat is not supported by our own measurement.**
+5. **Ari revised the runway's inference assumption upward.** Asked again on
+   12 October, over the same MCP connection, what one migration costs:
+
+   | Measure | Inference cost per repository |
+   |---|---|
+   | One successful migration, excluding failed runs | **$0.93** median ($0.85–$1.06) |
+   | Cost per success, including failed attempts | **$2.26** |
+
+   Ari's recommendation, unprompted: *"For the runway plan, I'd use $2.26 per
+   successful repo migration as the provisional inference assumption, not
+   $0.93."* Section 4 models $0.00, the measured free-tier cost. At $2.26 the
+   twelve-month inference line is about $2,716 at 100 repos a month — still
+   under 0.5% of a $750 price, so no conclusion in section 4 changes, but the
+   model should carry the loaded figure rather than the free one.
+
+   Ari also flagged that these are measured tokens repriced at Sonnet rates,
+   not Sonnet invoices, and that the sample mixes harness versions. Both are
+   true. It attributed the runs to DeepSeek's free tier; in fact the final
+   ablation ran on `claude-haiku-5.5:free` and only the earlier runs were
+   DeepSeek, so the sample is mixed across both.
+
+6. **The compounding-memory moat is not supported by our own measurement.**
    Section 3's third lever assumes that what the agent learns on one migration
    makes the next one cheaper and more reliable. Upshift tests exactly this
    with its `graph+memory` configuration: lessons from each accepted file are

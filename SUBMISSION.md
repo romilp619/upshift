@@ -50,7 +50,7 @@ in plaintext, and Entire syncs checkpoints to `origin`, which is public.
 | 5 | Edits that don't improve the numbers are rolled back automatically and retried. | `evidence/RECOVERY.md` |
 | 6 | Entire's Trails review runner found a high-severity bug the agent's own checks could not see — a stale `pydantic~=1.10.2` pin. The agent now fixes pins itself. | Trail #1; `evidence/RECOVERY.md` |
 | 7 | **Entire Graph and memory changed nothing on this benchmark.** All three arms: same files, same order, same outcome; 27% and 87% more input. | README ablation |
-| 8 | cfo.ai, reading the agent's telemetry over MCP, caught a 2× error in our own cost reporting. | `BUSINESS.md` §5 |
+| 8 | cfo.ai, reading the agent's telemetry over MCP, caught a 2× error in our own cost reporting, and later revised the runway's inference assumption from $0.93 to $2.26 per success. | `BUSINESS.md` §5 |
 | 9 | Sonnet-list cost: **$0.93** per successful migration, **$2.26** counting failed attempts. Actual: $0.00 on a free tier. | `cost_projection` over MCP; `BUSINESS.md` §5 |
 | 10 | The last failing test's fix was found first by another agent (Codex). After two harness fixes, Upshift derives it unaided. | README honest notes |
 
