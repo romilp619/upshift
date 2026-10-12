@@ -105,9 +105,11 @@ used `claude-haiku-5.5:free`).
   holds the review finding and its fix. The `graph` and `graph+memory` configs use
   the Entire CLI: `ENTIRE_TOKEN_STORE=file entire login`, then
   `python -m upshift setup --target python-client` to index Graph.
-- **cfo.ai:** the analysis is in [BUSINESS.md](BUSINESS.md). The live endpoint
-  cfo.ai reads needs a private key, so run the same server locally and ask it a
-  question:
+- **cfo.ai:** the analysis is in [BUSINESS.md](BUSINESS.md). cfo.ai reads the
+  agent's run data from a live MCP server on AWS,
+  `https://44-198-170-139.sslip.io/mcp` (EC2 behind Caddy; see
+  [DEPLOY.md](DEPLOY.md)). It requires a private key, so a request without one
+  gets `401`. To query the same server yourself, run it locally:
 
   ```bash
   python -m upshift.mcp_server --host 127.0.0.1 --port 8787 --api-key test &
